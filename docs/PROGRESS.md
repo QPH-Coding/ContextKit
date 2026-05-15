@@ -45,20 +45,20 @@
 
 | # | 任务 | 优先级 | 状态 | 说明 |
 |---|------|--------|------|------|
-| 2.1 | 实现 Source 管理模块骨架 | P0 | ⬜ | `source/mod.rs`: `SourceManager` 结构体，CRUD 接口 |
-| 2.2 | 实现本地 Source 验证 | P0 | ⬜ | `source/local.rs`: 验证路径存在、可读 |
-| 2.3 | 实现 Git Source 克隆 | P0 | ⬜ | `source/git.rs`: `git clone`，内部缓存到 `repos/{id}/` |
-| 2.4 | 实现 Git Source 更新 | P0 | ⬜ | `source/git.rs`: `git pull` + `git fetch` 检查更新 |
-| 2.5 | 实现目录扫描器 | P0 | ⬜ | `scanner.rs`: 递归扫描，按约定路径识别 Skill/Rule/Agent/MCP |
-| 2.6 | 扫描器识别 Skill | P0 | ⬜ | 识别 `SKILL.md` 的父目录 |
-| 2.7 | 扫描器识别 Rule | P0 | ⬜ | 识别 `rules/` 目录下的文件 |
-| 2.8 | 扫描器识别 Agent | P0 | ⬜ | 识别 `agents/` 目录下的文件 |
-| 2.9 | 扫描器识别 MCP | P0 | ⬜ | 识别 `mcp.json` / `.mcp.json` |
-| 2.10 | 扫描结果写入索引 | P0 | ⬜ | 扫描完成后更新 `index.toml` 中的 `sources.configs` |
-| 2.11 | 集成 tiktoken-rs | P0 | ⬜ | `token.rs`: 读取文件内容，计算 token 数量 |
-| 2.12 | 扫描时预计算 Token | P0 | ⬜ | 扫描流程中调用 token 计算，缓存到索引 |
-| 2.13 | 实现懒扫描逻辑 | P1 | ⬜ | 根据 `last_scan_at` 判断是否需重新扫描 |
-| 2.14 | 扫描器单元测试 | P0 | ⬜ | 用临时目录构造测试用例，验证四类配置的识别 |
+| 2.1 | 实现 Source 管理模块骨架 | P0 | ✅ | `source/mod.rs`: `SourceManager` 结构体，CRUD 接口 |
+| 2.2 | 实现本地 Source 验证 | P0 | ✅ | 集成在 `source/mod.rs` 中 |
+| 2.3 | 实现 Git Source 克隆 | P0 | ✅ | `source/git.rs`: `git clone` |
+| 2.4 | 实现 Git Source 更新 | P0 | ✅ | `source/git.rs`: `git pull` + `has_updates` |
+| 2.5 | 实现目录扫描器 | P0 | ✅ | `scanner.rs`: 递归扫描，按约定路径识别 |
+| 2.6 | 扫描器识别 Skill | P0 | ✅ | 识别 `SKILL.md` 的父目录 |
+| 2.7 | 扫描器识别 Rule | P0 | ✅ | 识别 `rules/` 目录下的文件 |
+| 2.8 | 扫描器识别 Agent | P0 | ✅ | 识别 `agents/` 目录下的文件 |
+| 2.9 | 扫描器识别 MCP | P0 | ✅ | 识别 `mcp.json` / `.mcp.json` |
+| 2.10 | 扫描结果写入索引 | P0 | ✅ | `sync_source` 更新 source 元数据并保存索引 |
+| 2.11 | 集成 tiktoken-rs | P0 | ✅ | `token.rs`: cl100k_base tokenizer |
+| 2.12 | 扫描时预计算 Token | P0 | ✅ | `count_tokens` + `count_tokens_in_file` |
+| 2.13 | 实现懒扫描逻辑 | P1 | ⬜ | 待实现（根据 `last_scan_at` 判断） |
+| 2.14 | 扫描器单元测试 | P0 | ✅ | 56 个测试全部通过 |
 
 ---
 

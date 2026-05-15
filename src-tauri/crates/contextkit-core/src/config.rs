@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use crate::error::{ContextKitError, Result};
 
+#[derive(Clone)]
 pub struct ConfigManager {
     base_dir: PathBuf,
 }
