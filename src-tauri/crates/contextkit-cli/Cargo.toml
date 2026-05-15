@@ -1,0 +1,14 @@
+[package]
+name = "contextkit-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "ContextKit CLI"
+
+[[bin]]
+name = "ck"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+contextkit-core = { path = "../contextkit-core" }
