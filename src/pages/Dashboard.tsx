@@ -3,7 +3,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { globalApi, sourceApi, configApi } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
-import { Database, FileText, Zap, Layers, Search } from "lucide-react";
+import { errorMessage } from "@/lib/utils";
+import {
+  AlertCircle,
+  ArrowRight,
+  Database,
+  FileText,
+  Zap,
+  Layers,
+  Search,
+} from "lucide-react";
 
 function StatCard({
   label,
@@ -31,9 +40,10 @@ function GlobalSearch() {
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
 
-  const { data: configs } = useQuery({
+  const { data: configs, isError } = useQuery({
     queryKey: ["configs", ""],
     queryFn: () => configApi.listConfigs(),
+    retry: false,
   });
 
   const results =
@@ -53,13 +63,19 @@ function GlobalSearch() {
         <Search className="w-4 h-4 text-muted-foreground" />
         <input
           type="text"
+          aria-label="Search configs globally"
           placeholder="Search configs globally..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1 bg-transparent text-sm outline-none"
         />
       </div>
-      {query && results.length > 0 && (
+      {query && isError && (
+        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 p-3 text-sm text-muted-foreground">
+          Search is unavailable while ContextKit is disconnected.
+        </div>
+      )}
+      {query && !isError && results.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 max-h-64 overflow-auto">
           {results.map((config) => (
             <button
@@ -78,11 +94,42 @@ function GlobalSearch() {
           ))}
         </div>
       )}
-      {query && results.length === 0 && (
+      {query && !isError && results.length === 0 && (
         <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 p-3 text-sm text-muted-foreground">
           No configs found.
         </div>
       )}
+    </div>
+  );
+}
+
+function ErrorPanel({
+  title,
+  error,
+  onRetry,
+}: {
+  title: string;
+  error: unknown;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+      <div className="flex items-start gap-3">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">{title}</p>
+          <p className="mt-1 break-words text-xs opacity-90">
+            {errorMessage(error)}
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-3 rounded-md border border-destructive/30 px-2 py-1 text-xs font-medium hover:bg-destructive/10"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -101,14 +148,26 @@ function kindCountsText(configs: { kind: string }[]) {
 }
 
 export default function Dashboard() {
-  const { data: stats } = useQuery({
+  const {
+    data: stats,
+    isError: isStatsError,
+    error: statsError,
+    refetch: refetchStats,
+  } = useQuery({
     queryKey: ["stats"],
     queryFn: globalApi.getStats,
+    retry: false,
   });
 
-  const { data: sources } = useQuery({
+  const {
+    data: sources,
+    isError: isSourcesError,
+    error: sourcesError,
+    refetch: refetchSources,
+  } = useQuery({
     queryKey: ["sources"],
     queryFn: sourceApi.listSources,
+    retry: false,
   });
 
   return (
@@ -119,7 +178,15 @@ export default function Dashboard() {
 
       <GlobalSearch />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {isStatsError && (
+        <ErrorPanel
+          title="Could not load dashboard stats"
+          error={statsError}
+          onRetry={() => refetchStats()}
+        />
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           label="Sources"
           value={stats?.source_count ?? 0}
@@ -152,6 +219,14 @@ export default function Dashboard() {
         />
       </div>
 
+      {isSourcesError && (
+        <ErrorPanel
+          title="Could not load sources"
+          error={sourcesError}
+          onRetry={() => refetchSources()}
+        />
+      )}
+
       {sources && sources.length > 0 && (
         <div className="rounded-lg border bg-card p-4">
           <h3 className="font-semibold mb-3">Sources</h3>
@@ -178,15 +253,21 @@ export default function Dashboard() {
         </div>
       )}
 
-      {(!sources || sources.length === 0) && (
-        <div className="rounded-lg border border-dashed p-8 text-center">
-          <p className="text-muted-foreground">
-            No sources yet. Go to{" "}
-            <Link to="/sources" className="text-primary underline">
-              Sources
-            </Link>{" "}
-            to add one.
+      {!isSourcesError && (!sources || sources.length === 0) && (
+        <div className="rounded-lg border border-dashed bg-card p-8 text-center">
+          <Database className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+          <p className="font-medium">No sources yet</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+            Add a Git repository or local folder, then sync it to discover
+            skills, rules, agents, and MCP configs.
           </p>
+          <Link
+            to="/sources"
+            className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Add source
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
         </div>
       )}
     </div>
