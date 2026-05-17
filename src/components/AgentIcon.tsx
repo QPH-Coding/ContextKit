@@ -10,6 +10,7 @@ const agentIconMap: Record<string, string> = {
   codex: "/codex.ico",
   kimi: "/kimi.ico",
   cursor: "/opencode.ico",
+  codebuddy: "/codebuddy.svg",
 };
 
 const agentMeta: Record<string, { label: string; bg: string }> = {

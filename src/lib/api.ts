@@ -35,7 +35,7 @@ export const sourceApi = {
   checkSourceUpdates: (id: string) =>
     invokeCommand<boolean>("check_source_updates", { id }),
   pullSourceUpdates: (id: string) =>
-    invokeCommand<void>("pull_source_updates", { id }),
+    invokeCommand<ConfigSummary[]>("pull_source_updates", { id }),
   listSources: () => invokeCommand<Source[]>("list_sources", {}),
   syncSource: (id: string, force?: boolean) =>
     invokeCommand<ConfigSummary[]>("sync_source", { id, force }),

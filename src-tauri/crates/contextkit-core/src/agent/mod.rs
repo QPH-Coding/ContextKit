@@ -66,6 +66,16 @@ impl AssignmentManager {
         }
     }
 
+    /// 注入单个 MCP server 配置。
+    pub fn assign_json_server(
+        &self,
+        target: &Path,
+        server_name: &str,
+        server_config: serde_json::Value,
+    ) -> Result<PathBuf> {
+        Self::assign_json_server_value(target, server_name, server_config)
+    }
+
     /// 取消分配
     ///
     /// - `target`: 目标文件路径
@@ -126,6 +136,41 @@ impl AssignmentManager {
                 }
             })?;
 
+        let server_name = source
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| {
+                if s.ends_with(".mcp") {
+                    s.trim_end_matches(".mcp").to_string()
+                } else {
+                    s.to_string()
+                }
+            })
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let server_config =
+            if let Some(servers) = source_value.get("mcpServers").and_then(|v| v.as_object()) {
+                servers
+                    .values()
+                    .next()
+                    .cloned()
+                    .unwrap_or(source_value.clone())
+            } else {
+                source_value.clone()
+            };
+
+        Self::assign_json_server_value(target, &server_name, server_config)
+    }
+
+    fn assign_json_server_value(
+        target: &Path,
+        server_name: &str,
+        server_config: serde_json::Value,
+    ) -> Result<PathBuf> {
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
         let mut target_value = if target.exists() {
             let content = std::fs::read_to_string(target)?;
             serde_json::from_str(&content).map_err(|e| ContextKitError::AssignmentConflict {
@@ -147,36 +192,13 @@ impl AssignmentManager {
                 message: "Target MCP JSON missing mcpServers".into(),
             })?;
 
-        let server_name = source
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.ends_with(".mcp") {
-                    s.trim_end_matches(".mcp").to_string()
-                } else {
-                    s.to_string()
-                }
-            })
-            .unwrap_or_else(|| "unknown".to_string());
-
-        if mcp_servers.contains_key(&server_name) {
+        if mcp_servers.contains_key(server_name) {
             return Err(ContextKitError::AssignmentConflict {
                 message: format!("MCP server already exists: {server_name}"),
             });
         }
 
-        let server_config =
-            if let Some(servers) = source_value.get("mcpServers").and_then(|v| v.as_object()) {
-                servers
-                    .values()
-                    .next()
-                    .cloned()
-                    .unwrap_or(source_value.clone())
-            } else {
-                source_value.clone()
-            };
-
-        mcp_servers.insert(server_name, server_config);
+        mcp_servers.insert(server_name.to_string(), server_config);
 
         std::fs::write(target, serde_json::to_string_pretty(&target_value)?)?;
         Ok(target.to_path_buf())

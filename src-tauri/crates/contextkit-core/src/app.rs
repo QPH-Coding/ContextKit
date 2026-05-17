@@ -21,7 +21,10 @@ pub struct App {
 impl App {
     pub fn new() -> Result<Self> {
         let source_manager = SourceManager::new()?;
-        let default_sync_mode = source_manager.config().load_settings()?.unwrap_or(SyncMode::Reference);
+        let default_sync_mode = source_manager
+            .config()
+            .load_settings()?
+            .unwrap_or(SyncMode::Reference);
         let settings = Settings {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
@@ -37,7 +40,10 @@ impl App {
     pub fn with_config_dir<P: AsRef<Path>>(dir: P) -> Result<Self> {
         let config = ConfigManager::with_dir(dir);
         let source_manager = SourceManager::with_config(config)?;
-        let default_sync_mode = source_manager.config().load_settings()?.unwrap_or(SyncMode::Reference);
+        let default_sync_mode = source_manager
+            .config()
+            .load_settings()?
+            .unwrap_or(SyncMode::Reference);
         let settings = Settings {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
@@ -54,13 +60,13 @@ impl App {
 
     /// 自动判断 URL 或本地路径并添加 Source
     pub fn add_source(&mut self, url_or_path: String, name: Option<String>) -> Result<Source> {
+        let sync_mode = self.settings.default_sync_mode;
         if looks_like_url(&url_or_path) {
             self.source_manager
-                .add_git_source(url_or_path, name, SyncMode::Reference)
+                .add_git_source(url_or_path, name, sync_mode)
         } else {
             let path = PathBuf::from(&url_or_path);
-            self.source_manager
-                .add_local_source(path, name, SyncMode::Reference)
+            self.source_manager.add_local_source(path, name, sync_mode)
         }
     }
 
@@ -73,11 +79,14 @@ impl App {
     }
 
     pub fn update_source_ignore_dirs(&mut self, id: &str, ignore_dirs: Vec<String>) -> Result<()> {
-        self.source_manager.update_source_ignore_dirs(id, ignore_dirs)
+        self.source_manager
+            .update_source_ignore_dirs(id, ignore_dirs)
     }
 
     pub fn check_source_updates(&self, id: &str) -> Result<bool> {
-        let source = self.source_manager.list_sources()
+        let source = self
+            .source_manager
+            .list_sources()
             .iter()
             .find(|s| s.id == id)
             .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
@@ -87,15 +96,17 @@ impl App {
         crate::source::git::has_updates(&source.local_path)
     }
 
-    pub fn pull_source_updates(&self, id: &str) -> Result<()> {
-        let source = self.source_manager.list_sources()
+    pub fn pull_source_updates(&mut self, id: &str) -> Result<Vec<ConfigSummary>> {
+        let source = self
+            .source_manager
+            .list_sources()
             .iter()
             .find(|s| s.id == id)
             .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
         if !matches!(source.source_type, SourceType::Git { .. }) {
             return Err(ContextKitError::InvalidPath("Not a git source".into()));
         }
-        crate::source::git::pull_repo(&source.local_path)
+        self.source_manager.sync_source(id, true)
     }
 
     pub fn list_sources(&self) -> Vec<Source> {
@@ -136,6 +147,7 @@ impl App {
         for source in self.source_manager.list_sources() {
             for config in &source.configs {
                 if config.id == id {
+                    let mut detail_name = config.name.clone();
                     let mut abs_path = source.local_path.join(&config.relative_path);
                     // Skill 配置指向目录，需要定位到 SKILL.md
                     if config.kind == ConfigKind::Skill && !abs_path.is_file() {
@@ -151,11 +163,22 @@ impl App {
                     let content = if config.kind == ConfigKind::Mcp {
                         // Extract individual server config from mcpServers
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw_content) {
-                            if let Some(servers) = json.get("mcpServers").and_then(|v| v.as_object()) {
+                            if let Some(servers) =
+                                json.get("mcpServers").and_then(|v| v.as_object())
+                            {
                                 if let Some(server) = servers.get(&config.name) {
                                     server.to_string()
+                                } else if servers.len() == 1 {
+                                    let (server_name, server) =
+                                        servers.iter().next().expect("server exists");
+                                    detail_name = server_name.clone();
+                                    server.to_string()
                                 } else {
-                                    raw_content
+                                    return Err(ContextKitError::InvalidPath(format!(
+                                        "MCP server '{}' was not found in {}. Sync the source to refresh MCP entries.",
+                                        config.name,
+                                        abs_path.display()
+                                    )));
                                 }
                             } else {
                                 raw_content
@@ -175,7 +198,7 @@ impl App {
                         .collect();
                     return Ok(ConfigDetail {
                         id: config.id.clone(),
-                        name: config.name.clone(),
+                        name: detail_name,
                         kind: config.kind,
                         source_id: config.source_id.clone(),
                         source_name: config.source_name.clone(),
@@ -242,8 +265,19 @@ impl App {
             });
         }
 
-        self.assignment_manager
-            .assign(source_path, &target, mechanism)?;
+        if mechanism == AssignmentMechanism::JsonInject && config.kind == ConfigKind::Mcp {
+            let server_config: serde_json::Value =
+                serde_json::from_str(&config.content).map_err(|e| {
+                    ContextKitError::AssignmentConflict {
+                        message: format!("Invalid MCP server JSON in config: {e}"),
+                    }
+                })?;
+            self.assignment_manager
+                .assign_json_server(&target, &config.name, server_config)?;
+        } else {
+            self.assignment_manager
+                .assign(source_path, &target, mechanism)?;
+        }
 
         let assignment = Assignment {
             config_id: config_id.into(),
@@ -293,19 +327,13 @@ impl App {
 
         let mechanism = agent.mechanism(config.kind);
         let server_name = if mechanism == AssignmentMechanism::JsonInject {
-            source_path.file_stem().and_then(|s| s.to_str()).map(|s| {
-                if s.ends_with(".mcp") {
-                    s.trim_end_matches(".mcp").to_string()
-                } else {
-                    s.to_string()
-                }
-            })
+            Some(config.name.as_str())
         } else {
             None
         };
 
         self.assignment_manager
-            .unassign(&target, mechanism, server_name.as_deref())?;
+            .unassign(&target, mechanism, server_name)?;
 
         self.source_manager.remove_assignment(config_id, agent_id)?;
         Ok(())
@@ -598,7 +626,11 @@ mod tests {
         let _ = fs::remove_dir_all(&project);
         fs::create_dir_all(&dir).unwrap();
         fs::create_dir_all(project.join(".cursor")).unwrap();
-        fs::write(dir.join("mcp.json"), r#"{"mcpServers": {"mcp": {"command": "new"}}}"#).unwrap();
+        fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers": {"mcp": {"command": "new"}}}"#,
+        )
+        .unwrap();
         fs::write(
             project.join(".cursor").join("mcp.json"),
             r#"{"mcpServers": {"existing": {"command": "old"}}}"#,
@@ -623,6 +655,137 @@ mod tests {
 
         cleanup(&dir);
         cleanup(&project);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn assign_cursor_project_mcp_uses_selected_server() {
+        let dir = env::temp_dir().join(format!("ck-app-mcp-selected-src-{}", std::process::id()));
+        let project = env::temp_dir().join(format!(
+            "ck-app-mcp-selected-project-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&project);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers": {"alpha": {"command": "alpha-cmd"}, "beta": {"command": "beta-cmd"}}}"#,
+        )
+        .unwrap();
+
+        let mut app = temp_app("assign-mcp-selected");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+        app.sync_source(&source.id, true).unwrap();
+
+        let beta_id = app
+            .list_configs(Some(ConfigKind::Mcp), None)
+            .into_iter()
+            .find(|c| c.name == "beta")
+            .unwrap()
+            .id;
+        app.assign_config(&beta_id, "cursor", PathScope::Project, Some(&project))
+            .unwrap();
+
+        let content = fs::read_to_string(project.join(".cursor").join("mcp.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let servers = json.get("mcpServers").unwrap().as_object().unwrap();
+        assert!(!servers.contains_key("alpha"));
+        assert_eq!(servers["beta"]["command"], "beta-cmd");
+
+        app.unassign_config(&beta_id, "cursor").unwrap();
+        let content = fs::read_to_string(project.join(".cursor").join("mcp.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let servers = json.get("mcpServers").unwrap().as_object().unwrap();
+        assert!(!servers.contains_key("beta"));
+
+        cleanup(&dir);
+        cleanup(&project);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn get_config_supports_stale_single_server_mcp_entry() {
+        use crate::models::ConfigSummary;
+
+        let dir = env::temp_dir().join(format!("ck-app-mcp-stale-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers": {"actual": {"command": "actual-cmd"}}}"#,
+        )
+        .unwrap();
+
+        let mut app = temp_app("mcp-stale-single");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+
+        let stale_config = ConfigSummary {
+            id: format!("{}:stale", source.id),
+            name: "mcp".into(),
+            kind: ConfigKind::Mcp,
+            source_id: source.id.clone(),
+            source_name: source.name.clone(),
+            relative_path: PathBuf::from("mcp.json"),
+            token_count: 1,
+        };
+        let source_mut = app
+            .source_manager
+            .index_mut()
+            .get_source_mut(&source.id)
+            .unwrap();
+        source_mut.configs = vec![stale_config.clone()];
+
+        let detail = app.get_config(&stale_config.id).unwrap();
+        assert_eq!(detail.name, "actual");
+        assert!(detail.content.contains("actual-cmd"));
+
+        cleanup(&dir);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn get_config_errors_for_stale_multi_server_mcp_entry() {
+        use crate::models::ConfigSummary;
+
+        let dir = env::temp_dir().join(format!("ck-app-mcp-stale-multi-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers": {"alpha": {"command": "a"}, "beta": {"command": "b"}}}"#,
+        )
+        .unwrap();
+
+        let mut app = temp_app("mcp-stale-multi");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+
+        let stale_config = ConfigSummary {
+            id: format!("{}:stale", source.id),
+            name: "mcp".into(),
+            kind: ConfigKind::Mcp,
+            source_id: source.id.clone(),
+            source_name: source.name.clone(),
+            relative_path: PathBuf::from("mcp.json"),
+            token_count: 1,
+        };
+        let source_mut = app
+            .source_manager
+            .index_mut()
+            .get_source_mut(&source.id)
+            .unwrap();
+        source_mut.configs = vec![stale_config.clone()];
+
+        let result = app.get_config(&stale_config.id);
+        assert!(matches!(result, Err(ContextKitError::InvalidPath(_))));
+
+        cleanup(&dir);
         cleanup(app.source_manager.config().config_dir());
     }
 
@@ -710,11 +873,21 @@ mod tests {
         app.update_settings(SyncMode::Copy).unwrap();
         assert_eq!(app.get_settings().default_sync_mode, SyncMode::Copy);
 
+        let source_dir =
+            env::temp_dir().join(format!("ck-app-settings-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&source_dir);
+        fs::create_dir_all(&source_dir).unwrap();
+        let source = app
+            .add_source(source_dir.to_string_lossy().to_string(), None)
+            .unwrap();
+        assert_eq!(source.mode, SyncMode::Copy);
+
         // 重新初始化应用，验证持久化
         let config_dir = app.source_manager.config().config_dir().to_path_buf();
         let app2 = App::with_config_dir(&config_dir).unwrap();
         assert_eq!(app2.get_settings().default_sync_mode, SyncMode::Copy);
 
+        cleanup(&source_dir);
         cleanup(&config_dir);
     }
 
@@ -766,7 +939,11 @@ mod tests {
         let dir = env::temp_dir().join(format!("ck-app-filter-src2-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("mcp.json"), r#"{"mcpServers": {"test-server": {}}}"#).unwrap();
+        fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers": {"test-server": {}}}"#,
+        )
+        .unwrap();
 
         let mut app = temp_app("filter-source");
         let source = app

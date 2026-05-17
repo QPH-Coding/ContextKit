@@ -1,10 +1,10 @@
-use std::sync::Mutex;
-use tauri::State;
 use contextkit_core::app::App;
 use contextkit_core::models::{
-    AgentInfo, Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Source, Stats,
-    Settings, SyncMode,
+    AgentInfo, Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Settings, Source,
+    Stats, SyncMode,
 };
+use std::sync::Mutex;
+use tauri::State;
 
 pub struct AppState {
     pub app: Mutex<App>,
@@ -56,8 +56,11 @@ pub fn check_source_updates(state: State<AppState>, id: String) -> Result<bool, 
 }
 
 #[tauri::command]
-pub fn pull_source_updates(state: State<AppState>, id: String) -> Result<(), String> {
-    let app = state.app.lock().map_err(|e| e.to_string())?;
+pub fn pull_source_updates(
+    state: State<AppState>,
+    id: String,
+) -> Result<Vec<ConfigSummary>, String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
     app.pull_source_updates(&id).map_err(|e| e.to_string())
 }
 
@@ -74,7 +77,8 @@ pub async fn sync_source(
     force: Option<bool>,
 ) -> Result<Vec<ConfigSummary>, String> {
     let mut app = state.app.lock().map_err(|e| e.to_string())?;
-    app.sync_source(&id, force.unwrap_or(false)).map_err(|e| e.to_string())
+    app.sync_source(&id, force.unwrap_or(false))
+        .map_err(|e| e.to_string())
 }
 
 // === Config 查询 ===
@@ -147,10 +151,7 @@ pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-pub fn update_settings(
-    state: State<'_, AppState>,
-    mode: SyncMode,
-) -> Result<(), String> {
+pub fn update_settings(state: State<'_, AppState>, mode: SyncMode) -> Result<(), String> {
     let mut app = state.app.lock().map_err(|e| e.to_string())?;
     app.update_settings(mode).map_err(|e| e.to_string())
 }

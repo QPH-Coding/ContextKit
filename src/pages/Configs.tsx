@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { configApi, assignmentApi, globalApi } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
@@ -18,6 +19,7 @@ import {
   AlertTriangle,
   Square,
   SquareCheck,
+  ArrowLeft,
 } from "lucide-react";
 
 const kindOptions = [
@@ -40,6 +42,10 @@ function kindBadge(kind: string) {
       "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   };
   return classes[kind] || "bg-gray-100 text-gray-800";
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function useLocalStorageState<T>(
@@ -65,10 +71,12 @@ function useLocalStorageState<T>(
 }
 
 export default function Configs() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [kind, setKind] = useState("");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = searchParams.get("config");
   const [showAgentSelector, setShowAgentSelector] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [quickAgents, setQuickAgents] = useLocalStorageState<string[]>(
     "ck-quick-agents",
     []
@@ -82,10 +90,16 @@ export default function Configs() {
     queryFn: () => configApi.listConfigs(kind || undefined),
   });
 
-  const { data: detail } = useQuery({
+  const {
+    data: detail,
+    isLoading: isDetailLoading,
+    isError: isDetailError,
+    error: detailError,
+  } = useQuery({
     queryKey: ["config", selectedId],
     queryFn: () => configApi.getConfig(selectedId!),
     enabled: !!selectedId,
+    retry: false,
   });
 
   const { data: agents } = useQuery({
@@ -101,26 +115,34 @@ export default function Configs() {
   const assignMutation = useMutation({
     mutationFn: (vars: { configId: string; agentId: string }) =>
       assignmentApi.assignConfig(vars.configId, vars.agentId, "user", undefined),
+    onMutate: () => {
+      setAssignmentError(null);
+    },
     onSuccess: () => {
+      setAssignmentError(null);
       queryClient.invalidateQueries({ queryKey: ["assignments"] });
       queryClient.invalidateQueries({ queryKey: ["config"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     },
-    onError: (_err: Error) => {
-      // Silently ignore individual errors in batch
+    onError: (err) => {
+      setAssignmentError(errorMessage(err));
     },
   });
 
   const unassignMutation = useMutation({
     mutationFn: (vars: { configId: string; agentId: string }) =>
       assignmentApi.unassignConfig(vars.configId, vars.agentId),
+    onMutate: () => {
+      setAssignmentError(null);
+    },
     onSuccess: () => {
+      setAssignmentError(null);
       queryClient.invalidateQueries({ queryKey: ["assignments"] });
       queryClient.invalidateQueries({ queryKey: ["config"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     },
-    onError: (_err: Error) => {
-      // Silently ignore individual errors in batch
+    onError: (err) => {
+      setAssignmentError(errorMessage(err));
     },
   });
 
@@ -152,12 +174,14 @@ export default function Configs() {
   }, [filteredConfigs]);
 
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+  const [didAutoExpand, setDidAutoExpand] = useState(false);
 
-  useMemo(() => {
-    if (grouped.length === 1 && expandedSources.size === 0) {
+  useEffect(() => {
+    if (!didAutoExpand && grouped.length === 1) {
       setExpandedSources(new Set([grouped[0].source_id]));
+      setDidAutoExpand(true);
     }
-  }, [grouped]);
+  }, [didAutoExpand, grouped]);
 
   const expandAll = () => setExpandedSources(new Set(grouped.map((g) => g.source_id)));
   const collapseAll = () => setExpandedSources(new Set());
@@ -260,6 +284,18 @@ export default function Configs() {
     return sorted.slice(0, 4);
   };
 
+  const openConfig = (configId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("config", configId);
+    setSearchParams(next);
+  };
+
+  const closeConfig = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("config");
+    setSearchParams(next);
+  };
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -340,6 +376,19 @@ export default function Configs() {
         </div>
       </div>
 
+      {assignmentError && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <p>{assignmentError}</p>
+          <button
+            onClick={() => setAssignmentError(null)}
+            className="rounded-md p-0.5 hover:bg-destructive/10"
+            aria-label="Dismiss assignment error"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {selectedConfigs.size > 0 && (
         <div className="rounded-lg border bg-card p-3 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
@@ -387,9 +436,9 @@ export default function Configs() {
             <p className="text-xs opacity-80">
               Some configs show 0 tokens because they were scanned before token
               counting was enabled. Go to{" "}
-              <a href="#/sources" className="underline">
+              <Link to="/sources" className="underline">
                 Sources
-              </a>{" "}
+              </Link>{" "}
               and click <strong>Sync</strong> on each source to recalculate.
             </p>
           </div>
@@ -488,7 +537,7 @@ export default function Configs() {
                           </button>
                         </div>
                         <button
-                          onClick={() => setSelectedId(config.id)}
+                          onClick={() => openConfig(config.id)}
                           className="flex-1 text-left min-w-0"
                         >
                           <div className="flex items-center gap-3">
@@ -567,21 +616,39 @@ export default function Configs() {
         <>
           <div
             className="fixed inset-0 bg-black/40 z-40"
-            onClick={() => setSelectedId(null)}
+            onClick={closeConfig}
           />
           <aside className="fixed right-0 top-0 bottom-0 w-full max-w-lg bg-card border-l shadow-xl z-50 overflow-auto">
             <div className="p-6 space-y-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold">Config Detail</h3>
                 <button
-                  onClick={() => setSelectedId(null)}
+                  onClick={closeConfig}
+                  className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <button
+                  onClick={closeConfig}
                   className="p-1 rounded-md hover:bg-accent"
+                  aria-label="Close config detail"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {detail ? (
+              {isDetailLoading && (
+                <p className="text-sm text-muted-foreground">Loading...</p>
+              )}
+              {isDetailError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  <p className="font-medium">Failed to load config</p>
+                  <p className="mt-1 text-xs">
+                    {errorMessage(detailError)}
+                  </p>
+                </div>
+              )}
+              {detail && !isDetailError && (
                 <DetailContent
                   detail={detail}
                   agents={activeQuickAgents}
@@ -595,8 +662,6 @@ export default function Configs() {
                   isAssigning={assignMutation.isPending}
                   isUnassigning={unassignMutation.isPending}
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">Loading...</p>
               )}
             </div>
           </aside>

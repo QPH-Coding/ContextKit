@@ -131,15 +131,22 @@ impl SourceManager {
     }
 
     pub fn update_source_name(&mut self, id: &str, name: String) -> Result<()> {
-        let source = self.index.get_source_mut(id)
+        let source = self
+            .index
+            .get_source_mut(id)
             .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
-        source.name = name;
+        source.name = name.clone();
+        for config in &mut source.configs {
+            config.source_name = name.clone();
+        }
         self.save()?;
         Ok(())
     }
 
     pub fn update_source_ignore_dirs(&mut self, id: &str, ignore_dirs: Vec<String>) -> Result<()> {
-        let source = self.index.get_source_mut(id)
+        let source = self
+            .index
+            .get_source_mut(id)
             .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
         source.ignore_dirs = ignore_dirs;
         self.save()?;
@@ -166,8 +173,8 @@ impl SourceManager {
         if !force {
             if let Some(ref last_scan) = source.last_scan_at {
                 if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(last_scan) {
-                    let elapsed = chrono::Utc::now()
-                        .signed_duration_since(dt.with_timezone(&chrono::Utc));
+                    let elapsed =
+                        chrono::Utc::now().signed_duration_since(dt.with_timezone(&chrono::Utc));
                     if elapsed.num_seconds() < LAZY_SCAN_THRESHOLD_SECS {
                         return Ok(source.configs.clone());
                     }
@@ -231,6 +238,11 @@ impl SourceManager {
 
     pub fn index(&self) -> &Index {
         &self.index
+    }
+
+    #[cfg(test)]
+    pub(crate) fn index_mut(&mut self) -> &mut Index {
+        &mut self.index
     }
 
     pub fn add_assignment(&mut self, assignment: Assignment) -> Result<()> {
@@ -369,6 +381,31 @@ mod tests {
         let updated = mgr.index().get_source(&source.id).unwrap();
         assert!(updated.last_scan_at.is_some());
         assert_eq!(updated.config_count, Some(1));
+
+        cleanup(&source_dir);
+        cleanup(config.config_dir());
+    }
+
+    #[test]
+    fn update_source_name_updates_scanned_configs() {
+        let config = temp_config("rename-configs");
+        let mut mgr = SourceManager::with_config(config.clone()).unwrap();
+
+        let source_dir =
+            env::temp_dir().join(format!("ck-rename-configs-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&source_dir);
+        fs::create_dir_all(source_dir.join("rules")).unwrap();
+        fs::write(source_dir.join("rules").join("style.md"), "# Style").unwrap();
+
+        let source = mgr
+            .add_local_source(source_dir.clone(), Some("Old".into()), SyncMode::Reference)
+            .unwrap();
+        mgr.sync_source(&source.id, true).unwrap();
+        mgr.update_source_name(&source.id, "New".into()).unwrap();
+
+        let updated = mgr.index().get_source(&source.id).unwrap();
+        assert_eq!(updated.name, "New");
+        assert_eq!(updated.configs[0].source_name, "New");
 
         cleanup(&source_dir);
         cleanup(config.config_dir());
