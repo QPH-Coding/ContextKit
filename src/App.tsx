@@ -1,13 +1,20 @@
+import { Routes, Route } from "react-router-dom";
+import Layout from "@/components/Layout";
+import Dashboard from "@/pages/Dashboard";
+import Sources from "@/pages/Sources";
+import Configs from "@/pages/Configs";
+import Settings from "@/pages/Settings";
+
 function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">ContextKit</h1>
-        <p className="text-muted-foreground">
-          Manage your AI tool configurations
-        </p>
-      </div>
-    </div>
+    <Routes>
+      <Route element={<Layout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/sources" element={<Sources />} />
+        <Route path="/configs" element={<Configs />} />
+        <Route path="/settings" element={<Settings />} />
+      </Route>
+    </Routes>
   );
 }
 

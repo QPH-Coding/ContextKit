@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::index::Index;
-use crate::models::{ConfigSummary, Source, SourceType, SyncMode};
+use crate::models::{Assignment, ConfigSummary, Source, SourceType, SyncMode};
 use crate::scanner::scan_directory;
 
 pub use git::{clone_repo, pull_repo, has_updates};
@@ -57,6 +57,7 @@ impl SourceManager {
             mode,
             last_scan_at: None,
             config_count: None,
+            configs: Vec::new(),
         };
 
         self.index.add_source(source.clone());
@@ -87,6 +88,7 @@ impl SourceManager {
             mode,
             last_scan_at: None,
             config_count: None,
+            configs: Vec::new(),
         };
 
         self.index.add_source(source.clone());
@@ -122,6 +124,7 @@ impl SourceManager {
         if let Some(s) = self.index.get_source_mut(id) {
             s.last_scan_at = Some(chrono::Utc::now().to_rfc3339());
             s.config_count = Some(configs.len());
+            s.configs = configs.clone();
         }
 
         self.save()?;
@@ -138,6 +141,16 @@ impl SourceManager {
 
     pub fn index(&self) -> &Index {
         &self.index
+    }
+
+    pub fn add_assignment(&mut self, assignment: Assignment) -> Result<()> {
+        self.index.add_assignment(assignment);
+        self.save()
+    }
+
+    pub fn remove_assignment(&mut self, config_id: &str, agent_id: &str) -> Result<()> {
+        self.index.remove_assignment(config_id, agent_id);
+        self.save()
     }
 }
 

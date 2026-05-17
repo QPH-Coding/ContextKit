@@ -1,14 +1,31 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+use contextkit_core::app::App;
+
+mod commands;
+use commands::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let app = App::new().expect("failed to initialize ContextKit app");
+    let state = AppState {
+        app: std::sync::Mutex::new(app),
+    };
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            commands::add_source,
+            commands::remove_source,
+            commands::list_sources,
+            commands::sync_source,
+            commands::list_configs,
+            commands::get_config,
+            commands::assign_config,
+            commands::unassign_config,
+            commands::list_assignments,
+            commands::get_stats,
+            commands::get_settings,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

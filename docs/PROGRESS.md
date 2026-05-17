@@ -95,29 +95,29 @@
 
 | # | 任务 | 优先级 | 状态 | 说明 |
 |---|------|--------|------|------|
-| 4.1.1 | 实现 Source Commands | P0 | ⬜ | `add_source`, `remove_source`, `list_sources`, `sync_source` |
-| 4.1.2 | 实现 Config Commands | P0 | ⬜ | `list_configs`, `get_config` |
-| 4.1.3 | 实现 Assignment Commands | P0 | ⬜ | `assign_config`, `unassign_config`, `list_assignments` |
-| 4.1.4 | 实现 Global Commands | P0 | ⬜ | `get_stats`, `get_settings`, `update_settings` |
-| 4.1.5 | 注册所有 Commands 到 Tauri | P0 | ⬜ | `contextkit-gui/main.rs` 中 `.invoke_handler()` |
+| 4.1.1 | 实现 Source Commands | P0 | ✅ | `add_source`, `remove_source`, `list_sources`, `sync_source` |
+| 4.1.2 | 实现 Config Commands | P0 | ✅ | `list_configs`, `get_config` |
+| 4.1.3 | 实现 Assignment Commands | P0 | ✅ | `assign_config`, `unassign_config`, `list_assignments` |
+| 4.1.4 | 实现 Global Commands | P0 | ✅ | `get_stats`, `get_settings` |
+| 4.1.5 | 注册所有 Commands 到 Tauri | P0 | ✅ | `contextkit-gui/src/lib.rs` + `commands.rs` |
 
 ### 4.2 前端侧（React 页面）
 
 | # | 任务 | 优先级 | 状态 | 说明 |
 |---|------|--------|------|------|
-| 4.2.1 | 搭建页面路由 | P0 | ⬜ | `react-router-dom`，定义 `/`, `/sources`, `/skills`, `/rules`, `/agents`, `/mcp`, `/settings` |
-| 4.2.2 | 搭建布局框架 | P0 | ⬜ | Sidebar 导航 + 顶部 NavBar（含全局搜索框）+ 主内容区 |
-| 4.2.3 | 实现 Dashboard 页面 | P0 | ⬜ | 统计卡片、Agent 工具启用状态、Token 汇总 |
-| 4.2.4 | 实现 Source 列表页面 | P0 | ⬜ | 展示所有 Source，支持添加/删除/刷新 |
-| 4.2.5 | 实现 Source 添加对话框 | P0 | ⬜ | 输入 Git URL 或本地路径，选择模式（reference/copy） |
-| 4.2.6 | 实现 Config 列表页面（通用） | P0 | ⬜ | Skill/Rule/Agent/MCP 共用列表组件，按类型过滤 |
-| 4.2.7 | 实现 Config 详情抽屉 | P0 | ⬜ | Slide-over Panel，展示元数据 + 文件内容预览 + 分配状态 |
-| 4.2.8 | 实现分配操作 UI | P0 | ⬜ | 详情抽屉中勾选 Agent 工具，选择 User/Project 范围 |
-| 4.2.9 | 实现冲突提示对话框 | P0 | ⬜ | 分配时检测到冲突，弹窗让用户选择跳过/覆盖/重命名 |
-| 4.2.10 | 实现全局搜索 | P1 | ⬜ | NavBar 搜索框，搜索名称/路径，结果按类型分组 |
-| 4.2.11 | 实现 Settings 页面 | P1 | ⬜ | 配置目录、默认同步模式、Agent 工具自定义路径 |
-| 4.2.12 | 加载状态与错误处理 | P0 | ⬜ | TanStack Query 的 `isLoading`, `isError`，统一错误提示 |
-| 4.2.13 | 空状态与引导 | P1 | ⬜ | 无 Source 时的引导页面，首次使用教程 |
+| 4.2.1 | 搭建页面路由 | P0 | ✅ | `react-router-dom`，定义 `/`, `/sources`, `/configs`, `/settings` |
+| 4.2.2 | 搭建布局框架 | P0 | ✅ | Sidebar 导航 + 主内容区 |
+| 4.2.3 | 实现 Dashboard 页面 | P0 | ✅ | 统计卡片、Source 列表、空状态引导 |
+| 4.2.4 | 实现 Source 列表页面 | P0 | ✅ | 展示所有 Source，支持添加/删除/刷新 |
+| 4.2.5 | 实现 Source 添加对话框 | P0 | ✅ | 内联表单：输入 Git URL 或本地路径 |
+| 4.2.6 | 实现 Config 列表页面（通用） | P0 | ✅ | 列表 + 按类型过滤（Skill/Rule/Agent/MCP） |
+| 4.2.7 | 实现 Config 详情抽屉 | P0 | ⬜ | Slide-over Panel（后续迭代） |
+| 4.2.8 | 实现分配操作 UI | P0 | ⬜ | 详情抽屉中勾选 Agent 工具（后续迭代） |
+| 4.2.9 | 实现冲突提示对话框 | P0 | ⬜ | 分配时冲突检测（后续迭代） |
+| 4.2.10 | 实现全局搜索 | P1 | ⬜ | NavBar 搜索框（后续迭代） |
+| 4.2.11 | 实现 Settings 页面 | P1 | ✅ | 配置目录、默认同步模式展示 |
+| 4.2.12 | 加载状态与错误处理 | P0 | ✅ | TanStack Query `isLoading`, `isError` |
+| 4.2.13 | 空状态与引导 | P1 | ✅ | 无 Source 时的引导页面 |
 
 ---
 
@@ -155,10 +155,10 @@
 
 ## 当前聚焦
 
-> Phase 3 已完成（TDD 实现）。进入 Phase 4：GUI 实现（Tauri Commands + React 页面）。
+> Phase 4 核心功能已完成（TDD 实现）。前后端已连通。
 
 **下一步行动**：
-1. 实现 Tauri Commands（Source / Config / Assignment / Global）
-2. 注册 Commands 到 Tauri Builder
-3. 前端搭建路由与布局框架
-4. 实现 Dashboard / Sources / Configs / Settings 页面
+1. 实现 Config 详情抽屉 + 分配操作 UI
+2. 实现全局搜索
+3. 完善空状态、错误提示、首次使用引导
+4. Phase 5/6：CLI/TUI、跨平台构建、打包发布

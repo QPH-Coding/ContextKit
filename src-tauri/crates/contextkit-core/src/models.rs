@@ -43,6 +43,8 @@ pub struct Source {
     pub last_scan_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub configs: Vec<ConfigSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,6 +80,23 @@ pub struct Assignment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_path: Option<PathBuf>,
     pub assigned_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Stats {
+    pub source_count: usize,
+    pub total_configs: usize,
+    pub configs_by_kind: std::collections::HashMap<ConfigKind, usize>,
+    pub configs_by_agent: std::collections::HashMap<String, usize>,
+    pub total_tokens: usize,
+    pub tokens_by_agent: std::collections::HashMap<String, usize>,
+    pub tokens_by_kind: std::collections::HashMap<ConfigKind, usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Settings {
+    pub config_dir: PathBuf,
+    pub default_sync_mode: SyncMode,
 }
 
 #[cfg(test)]
@@ -175,6 +194,7 @@ mod tests {
             mode: SyncMode::Reference,
             last_scan_at: Some("2026-05-15T10:00:00Z".into()),
             config_count: Some(5),
+            configs: Vec::new(),
         };
         let serialized = toml::to_string(&source).unwrap();
         let deserialized: Source = toml::from_str(&serialized).unwrap();
@@ -243,6 +263,7 @@ mod tests {
             mode: SyncMode::Reference,
             last_scan_at: Some("2026-05-15T10:00:00Z".into()),
             config_count: Some(5),
+            configs: Vec::new(),
         };
         let toml_str = toml::to_string(&source).unwrap();
         

@@ -121,6 +121,7 @@ mod tests {
             mode: SyncMode::Reference,
             last_scan_at: None,
             config_count: None,
+            configs: Vec::new(),
         }
     }
 
