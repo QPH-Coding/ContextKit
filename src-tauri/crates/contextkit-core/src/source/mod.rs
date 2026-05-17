@@ -70,6 +70,7 @@ impl SourceManager {
             last_scan_at: None,
             config_count: None,
             configs: Vec::new(),
+            ignore_dirs: Vec::new(),
         };
 
         self.index.add_source(source.clone());
@@ -115,6 +116,7 @@ impl SourceManager {
             last_scan_at: None,
             config_count: None,
             configs: Vec::new(),
+            ignore_dirs: Vec::new(),
         };
 
         self.index.add_source(source.clone());
@@ -128,25 +130,85 @@ impl SourceManager {
         Ok(())
     }
 
+    pub fn update_source_name(&mut self, id: &str, name: String) -> Result<()> {
+        let source = self.index.get_source_mut(id)
+            .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
+        source.name = name;
+        self.save()?;
+        Ok(())
+    }
+
+    pub fn update_source_ignore_dirs(&mut self, id: &str, ignore_dirs: Vec<String>) -> Result<()> {
+        let source = self.index.get_source_mut(id)
+            .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
+        source.ignore_dirs = ignore_dirs;
+        self.save()?;
+        Ok(())
+    }
+
     pub fn list_sources(&self) -> &[Source] {
         &self.index.sources
     }
 
     /// 同步源：Git 源先 pull，然后扫描目录
-    pub fn sync_source(&mut self, id: &str) -> Result<Vec<ConfigSummary>> {
+    ///
+    /// `force` 为 true 时跳过懒加载检查，强制重新扫描。
+    pub fn sync_source(&mut self, id: &str, force: bool) -> Result<Vec<ConfigSummary>> {
         let source = self
             .index
             .get_source(id)
             .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?
             .clone();
 
-        // Git 源：先 pull
+        const LAZY_SCAN_THRESHOLD_SECS: i64 = 300; // 5 minutes
+
+        // 懒加载检查
+        if !force {
+            if let Some(ref last_scan) = source.last_scan_at {
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(last_scan) {
+                    let elapsed = chrono::Utc::now()
+                        .signed_duration_since(dt.with_timezone(&chrono::Utc));
+                    if elapsed.num_seconds() < LAZY_SCAN_THRESHOLD_SECS {
+                        return Ok(source.configs.clone());
+                    }
+                }
+            }
+        }
+
+        // Git 源：检查更新并 pull
         if let SourceType::Git { .. } = &source.source_type {
-            git::pull_repo(&source.local_path)?;
+            if !force {
+                match git::has_updates(&source.local_path) {
+                    Ok(false) => {
+                        // 无远程更新且已有缓存，直接更新时间戳返回缓存
+                        if !source.configs.is_empty() {
+                            if let Some(s) = self.index.get_source_mut(id) {
+                                s.last_scan_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                            self.save()?;
+                            return Ok(source.configs.clone());
+                        }
+                    }
+                    Ok(true) => {
+                        git::pull_repo(&source.local_path)?;
+                    }
+                    Err(_) => {
+                        // 检查失败时回退到直接 pull
+                        git::pull_repo(&source.local_path)?;
+                    }
+                }
+            } else {
+                git::pull_repo(&source.local_path)?;
+            }
         }
 
         // 扫描
-        let configs = scan_directory(&source.local_path, &source.id, &source.name)?;
+        let configs = scan_directory(
+            &source.local_path,
+            &source.id,
+            &source.name,
+            &source.ignore_dirs,
+        )?;
 
         // 更新 source 元数据
         if let Some(s) = self.index.get_source_mut(id) {
@@ -298,7 +360,7 @@ mod tests {
         let source = mgr
             .add_local_source(source_dir.clone(), None, SyncMode::Reference)
             .unwrap();
-        let configs = mgr.sync_source(&source.id).unwrap();
+        let configs = mgr.sync_source(&source.id, true).unwrap();
 
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, crate::models::ConfigKind::Rule);

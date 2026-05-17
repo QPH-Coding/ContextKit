@@ -10,9 +10,10 @@ pub fn scan_directory(
     root: &Path,
     source_id: &str,
     source_name: &str,
+    ignore_dirs: &[String],
 ) -> Result<Vec<ConfigSummary>> {
     let mut configs = Vec::new();
-    visit_dir(root, root, source_id, source_name, &mut configs)?;
+    visit_dir(root, root, source_id, source_name, ignore_dirs, &mut configs)?;
     Ok(configs)
 }
 
@@ -47,6 +48,7 @@ fn visit_dir(
     current: &Path,
     source_id: &str,
     source_name: &str,
+    ignore_dirs: &[String],
     configs: &mut Vec<ConfigSummary>,
 ) -> Result<()> {
     if !current.is_dir() {
@@ -77,25 +79,37 @@ fn visit_dir(
         let name_str = name.to_string_lossy();
 
         if path.is_dir() {
+            if ignore_dirs.iter().any(|d| d == name_str.as_ref()) {
+                continue;
+            }
             if name_str == "rules" {
                 scan_rules_dir(&path, root, source_id, source_name, configs)?;
             } else if name_str == "agents" {
                 scan_agents_dir(&path, root, source_id, source_name, configs)?;
             } else {
-                visit_dir(root, &path, source_id, source_name, configs)?;
+                visit_dir(root, &path, source_id, source_name, ignore_dirs, configs)?;
             }
         } else if path.is_file() && (name_str == "mcp.json" || name_str == ".mcp.json") {
             let rel = relative_path(root, &path);
-            let token_count = count_tokens_in_file(&path)?;
-            configs.push(ConfigSummary {
-                id: make_config_id(source_id, rel),
-                name: "mcp".into(),
-                kind: ConfigKind::Mcp,
-                source_id: source_id.into(),
-                source_name: source_name.into(),
-                relative_path: rel.into(),
-                token_count,
-            });
+            let content = std::fs::read_to_string(&path)?;
+            // Parse mcpServers from JSON
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(servers) = json.get("mcpServers").and_then(|v| v.as_object()) {
+                    for (server_name, server_config) in servers {
+                        let server_json = server_config.to_string();
+                        let token_count = crate::token::count_tokens(&server_json)?;
+                        configs.push(ConfigSummary {
+                            id: make_config_id(source_id, &rel.join(server_name)),
+                            name: server_name.clone(),
+                            kind: ConfigKind::Mcp,
+                            source_id: source_id.into(),
+                            source_name: source_name.into(),
+                            relative_path: rel.into(),
+                            token_count,
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -181,7 +195,7 @@ mod tests {
     #[test]
     fn scan_empty_directory() {
         let dir = setup_test_dir("empty");
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert!(configs.is_empty());
         cleanup(&dir);
     }
@@ -193,7 +207,7 @@ mod tests {
         fs::create_dir_all(&skill_dir).unwrap();
         fs::write(skill_dir.join("SKILL.md"), "# Coding Helper").unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Skill);
         assert_eq!(configs[0].name, "coding-helper");
@@ -209,7 +223,7 @@ mod tests {
         fs::create_dir_all(&rules_dir).unwrap();
         fs::write(rules_dir.join("typescript-style.md"), "# TypeScript Rules").unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Rule);
         assert_eq!(configs[0].name, "typescript-style");
@@ -225,7 +239,7 @@ mod tests {
         fs::create_dir_all(&agents_dir).unwrap();
         fs::write(agents_dir.join("reviewer.md"), "# Reviewer Prompt").unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Agent);
         assert_eq!(configs[0].name, "reviewer");
@@ -236,12 +250,12 @@ mod tests {
     #[test]
     fn scan_finds_mcp_json() {
         let dir = setup_test_dir("mcp");
-        fs::write(dir.join("mcp.json"), r#"{"mcpServers": {}}"#).unwrap();
+        fs::write(dir.join("mcp.json"), r#"{"mcpServers": {"test-server": {"command": "npx"}}}"#).unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Mcp);
-        assert_eq!(configs[0].name, "mcp");
+        assert_eq!(configs[0].name, "test-server");
 
         cleanup(&dir);
     }
@@ -249,11 +263,12 @@ mod tests {
     #[test]
     fn scan_finds_dot_mcp_json() {
         let dir = setup_test_dir("dot-mcp");
-        fs::write(dir.join(".mcp.json"), r#"{"mcpServers": {}}"#).unwrap();
+        fs::write(dir.join(".mcp.json"), r#"{"mcpServers": {"test-server": {}}}"#).unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Mcp);
+        assert_eq!(configs[0].name, "test-server");
 
         cleanup(&dir);
     }
@@ -278,9 +293,9 @@ mod tests {
         fs::write(agents_dir.join("prompt.md"), "# Prompt").unwrap();
 
         // MCP
-        fs::write(dir.join("mcp.json"), r#"{}"#).unwrap();
+        fs::write(dir.join("mcp.json"), r#"{"mcpServers": {"test-server": {}}}"#).unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 4);
 
         let kinds: Vec<_> = configs.iter().map(|c| c.kind).collect();
@@ -299,7 +314,7 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("react.md"), "# React Rules").unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Rule);
         assert_eq!(configs[0].name, "react");
@@ -314,7 +329,7 @@ mod tests {
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join("SKILL.md"), "# Deep Skill").unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Skill);
         assert_eq!(configs[0].name, "c");
@@ -333,7 +348,7 @@ mod tests {
         fs::write(dir.join("README.md"), "# Readme").unwrap();
         fs::write(dir.join("random.txt"), "random").unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert!(configs.is_empty());
 
         cleanup(&dir);
@@ -350,7 +365,7 @@ mod tests {
         fs::create_dir_all(&rules_dir).unwrap();
         fs::write(rules_dir.join("sub-rule.md"), "# Sub Rule").unwrap();
 
-        let configs = scan_directory(&dir, "src1", "test").unwrap();
+        let configs = scan_directory(&dir, "src1", "test", &[]).unwrap();
         assert_eq!(configs.len(), 2);
 
         let kinds: Vec<_> = configs.iter().map(|c| c.kind).collect();

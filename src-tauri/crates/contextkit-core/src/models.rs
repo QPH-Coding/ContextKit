@@ -45,6 +45,8 @@ pub struct Source {
     pub config_count: Option<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub configs: Vec<ConfigSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignore_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -97,6 +99,15 @@ pub struct Stats {
 pub struct Settings {
     pub config_dir: PathBuf,
     pub default_sync_mode: SyncMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentInfo {
+    pub id: String,
+    pub name: String,
+    pub supported_kinds: Vec<ConfigKind>,
+    pub supports_user_scope: bool,
+    pub supports_project_scope: bool,
 }
 
 #[cfg(test)]
@@ -195,6 +206,7 @@ mod tests {
             last_scan_at: Some("2026-05-15T10:00:00Z".into()),
             config_count: Some(5),
             configs: Vec::new(),
+            ignore_dirs: Vec::new(),
         };
         let serialized = toml::to_string(&source).unwrap();
         let deserialized: Source = toml::from_str(&serialized).unwrap();
@@ -264,6 +276,7 @@ mod tests {
             last_scan_at: Some("2026-05-15T10:00:00Z".into()),
             config_count: Some(5),
             configs: Vec::new(),
+            ignore_dirs: Vec::new(),
         };
         let toml_str = toml::to_string(&source).unwrap();
         

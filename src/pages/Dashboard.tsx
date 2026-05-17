@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { globalApi, sourceApi } from "@/lib/api";
-import { Database, FileText, Zap, Layers } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { globalApi, sourceApi, configApi } from "@/lib/api";
+import { formatTokenCount } from "@/lib/format";
+import { Database, FileText, Zap, Layers, Search } from "lucide-react";
 
 function StatCard({
   label,
@@ -9,7 +11,7 @@ function StatCard({
   icon: Icon,
 }: {
   label: string;
-  value: number;
+  value: string | number;
   icon: React.ElementType;
 }) {
   return (
@@ -25,6 +27,79 @@ function StatCard({
   );
 }
 
+function GlobalSearch() {
+  const [query, setQuery] = useState("");
+  const navigate = useNavigate();
+
+  const { data: configs } = useQuery({
+    queryKey: ["configs", ""],
+    queryFn: () => configApi.listConfigs(),
+  });
+
+  const results =
+    configs?.filter((c) => {
+      if (!query) return false;
+      const q = query.toLowerCase();
+      return (
+        c.name.toLowerCase().includes(q) ||
+        c.source_name.toLowerCase().includes(q) ||
+        c.kind.toLowerCase().includes(q)
+      );
+    }) ?? [];
+
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2">
+        <Search className="w-4 h-4 text-muted-foreground" />
+        <input
+          type="text"
+          placeholder="Search configs globally..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="flex-1 bg-transparent text-sm outline-none"
+        />
+      </div>
+      {query && results.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 max-h-64 overflow-auto">
+          {results.map((config) => (
+            <button
+              key={config.id}
+              onClick={() => {
+                navigate("/configs");
+                setQuery("");
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
+            >
+              <span className="font-medium">{config.name}</span>
+              <span className="text-muted-foreground ml-2">
+                {config.kind} · {config.source_name}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {query && results.length === 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 p-3 text-sm text-muted-foreground">
+          No configs found.
+        </div>
+      )}
+    </div>
+  );
+}
+
+const kindOrder = ["skill", "rule", "agent", "mcp"] as const;
+
+function kindCountsText(configs: { kind: string }[]) {
+  const counts: Record<string, number> = {};
+  for (const c of configs) {
+    counts[c.kind] = (counts[c.kind] || 0) + 1;
+  }
+  return kindOrder
+    .filter((k) => (counts[k] || 0) > 0)
+    .map((k) => `${counts[k]} ${k}${counts[k]! > 1 ? "s" : ""}`)
+    .join(" · ") || "0 configs";
+}
+
 export default function Dashboard() {
   const { data: stats } = useQuery({
     queryKey: ["stats"],
@@ -38,22 +113,31 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Dashboard</h2>
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-2xl font-bold">Dashboard</h2>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <GlobalSearch />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           label="Sources"
           value={stats?.source_count ?? 0}
           icon={Database}
         />
         <StatCard
-          label="Configs"
-          value={stats?.total_configs ?? 0}
+          label="Skills"
+          value={stats?.configs_by_kind?.skill ?? 0}
+          icon={FileText}
+        />
+        <StatCard
+          label="Rules"
+          value={stats?.configs_by_kind?.rule ?? 0}
           icon={FileText}
         />
         <StatCard
           label="Tokens"
-          value={stats?.total_tokens ?? 0}
+          value={formatTokenCount(stats?.total_tokens ?? 0)}
           icon={Zap}
         />
         <StatCard
@@ -80,7 +164,7 @@ export default function Dashboard() {
                 <div>
                   <p className="font-medium">{source.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {source.config_count ?? 0} configs
+                    {kindCountsText(source.configs ?? [])}
                     {source.last_scan_at
                       ? ` · Last scan: ${new Date(
                           source.last_scan_at

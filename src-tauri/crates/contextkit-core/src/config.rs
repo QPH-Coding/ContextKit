@@ -38,6 +38,39 @@ impl ConfigManager {
         self.base_dir.join("settings.toml")
     }
 
+    /// 从 settings.toml 加载默认同步模式
+    pub fn load_settings(&self) -> Result<Option<crate::models::SyncMode>> {
+        let path = self.settings_path();
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let value: toml::Value = toml::from_str(&content).map_err(crate::error::ContextKitError::from)?;
+        if let Some(mode_str) = value.get("default_sync_mode").and_then(|v| v.as_str()) {
+            match mode_str {
+                "reference" => Ok(Some(crate::models::SyncMode::Reference)),
+                "copy" => Ok(Some(crate::models::SyncMode::Copy)),
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 保存默认同步模式到 settings.toml
+    pub fn save_settings(&self, mode: crate::models::SyncMode) -> Result<()> {
+        let path = self.settings_path();
+        let content = format!(
+            "default_sync_mode = \"{}\"\n",
+            match mode {
+                crate::models::SyncMode::Reference => "reference",
+                crate::models::SyncMode::Copy => "copy",
+            }
+        );
+        std::fs::write(&path, content)?;
+        Ok(())
+    }
+
     /// 确保配置目录及必要的子目录存在
     pub fn ensure_dirs(&self) -> Result<()> {
         std::fs::create_dir_all(&self.base_dir)?;

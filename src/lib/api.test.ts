@@ -39,4 +39,25 @@ describe("api wrappers", () => {
     const result = await globalApi.getStats();
     expect(result).toEqual({ cmd: "get_stats", args: {} });
   });
+
+  it("sourceApi.syncSource calls sync_source with force", async () => {
+    const result = await sourceApi.syncSource("src1", true);
+    expect(result).toEqual({
+      cmd: "sync_source",
+      args: { id: "src1", force: true },
+    });
+  });
+
+  it("globalApi.updateSettings calls update_settings", async () => {
+    const result = await globalApi.updateSettings("copy");
+    expect(result).toEqual({
+      cmd: "update_settings",
+      args: { mode: "copy" },
+    });
+  });
+
+  it("globalApi.listAgents calls list_agents", async () => {
+    const result = await globalApi.listAgents();
+    expect(result).toEqual({ cmd: "list_agents", args: {} });
+  });
 });

@@ -122,6 +122,7 @@ mod tests {
             last_scan_at: None,
             config_count: None,
             configs: Vec::new(),
+            ignore_dirs: Vec::new(),
         }
     }
 

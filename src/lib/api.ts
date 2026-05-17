@@ -6,6 +6,7 @@ import type {
   Assignment,
   Stats,
   Settings,
+  AgentInfo,
 } from "./types";
 
 export async function invokeCommand<T>(
@@ -27,9 +28,17 @@ export const sourceApi = {
     invokeCommand<Source>("add_source", { urlOrPath, name }),
   removeSource: (id: string) =>
     invokeCommand<void>("remove_source", { id }),
+  updateSourceName: (id: string, name: string) =>
+    invokeCommand<void>("update_source_name", { id, name }),
+  updateSourceIgnoreDirs: (id: string, ignoreDirs: string[]) =>
+    invokeCommand<void>("update_source_ignore_dirs", { id, ignoreDirs }),
+  checkSourceUpdates: (id: string) =>
+    invokeCommand<boolean>("check_source_updates", { id }),
+  pullSourceUpdates: (id: string) =>
+    invokeCommand<void>("pull_source_updates", { id }),
   listSources: () => invokeCommand<Source[]>("list_sources", {}),
-  syncSource: (id: string) =>
-    invokeCommand<ConfigSummary[]>("sync_source", { id }),
+  syncSource: (id: string, force?: boolean) =>
+    invokeCommand<ConfigSummary[]>("sync_source", { id, force }),
 };
 
 // Config queries
@@ -64,4 +73,7 @@ export const assignmentApi = {
 export const globalApi = {
   getStats: () => invokeCommand<Stats>("get_stats", {}),
   getSettings: () => invokeCommand<Settings>("get_settings", {}),
+  updateSettings: (mode: "reference" | "copy") =>
+    invokeCommand<void>("update_settings", { mode }),
+  listAgents: () => invokeCommand<AgentInfo[]>("list_agents", {}),
 };

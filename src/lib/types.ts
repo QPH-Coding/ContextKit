@@ -1,10 +1,16 @@
 export interface Source {
   id: string;
   name: string;
+  type: "git" | "local";
+  url?: string;
+  path?: string;
+  branch?: string;
   local_path: string;
   mode: "reference" | "copy";
   last_scan_at?: string;
   config_count?: number;
+  configs: ConfigSummary[];
+  ignore_dirs: string[];
 }
 
 export interface ConfigSummary {
@@ -43,4 +49,18 @@ export interface Stats {
 export interface Settings {
   config_dir: string;
   default_sync_mode: "reference" | "copy";
+}
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  supported_kinds: ("skill" | "rule" | "agent" | "mcp")[];
+  supports_user_scope: boolean;
+  supports_project_scope: boolean;
+}
+
+export interface ConfigsGroup {
+  source_id: string;
+  source_name: string;
+  configs: ConfigSummary[];
 }

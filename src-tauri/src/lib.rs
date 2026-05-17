@@ -12,10 +12,15 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::add_source,
             commands::remove_source,
+            commands::update_source_name,
+            commands::update_source_ignore_dirs,
+            commands::check_source_updates,
+            commands::pull_source_updates,
             commands::list_sources,
             commands::sync_source,
             commands::list_configs,
@@ -25,6 +30,8 @@ pub fn run() {
             commands::list_assignments,
             commands::get_stats,
             commands::get_settings,
+            commands::update_settings,
+            commands::list_agents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

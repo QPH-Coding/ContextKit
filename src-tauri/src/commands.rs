@@ -2,7 +2,8 @@ use std::sync::Mutex;
 use tauri::State;
 use contextkit_core::app::App;
 use contextkit_core::models::{
-    Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Source, Stats, Settings,
+    AgentInfo, Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Source, Stats,
+    Settings, SyncMode,
 };
 
 pub struct AppState {
@@ -28,6 +29,39 @@ pub async fn remove_source(state: State<'_, AppState>, id: String) -> Result<(),
 }
 
 #[tauri::command]
+pub async fn update_source_name(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.update_source_name(&id, name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_source_ignore_dirs(
+    state: State<'_, AppState>,
+    id: String,
+    ignore_dirs: Vec<String>,
+) -> Result<(), String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.update_source_ignore_dirs(&id, ignore_dirs)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn check_source_updates(state: State<AppState>, id: String) -> Result<bool, String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    app.check_source_updates(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn pull_source_updates(state: State<AppState>, id: String) -> Result<(), String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    app.pull_source_updates(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn list_sources(state: State<AppState>) -> Result<Vec<Source>, String> {
     let app = state.app.lock().map_err(|e| e.to_string())?;
     Ok(app.list_sources())
@@ -37,9 +71,10 @@ pub fn list_sources(state: State<AppState>) -> Result<Vec<Source>, String> {
 pub async fn sync_source(
     state: State<'_, AppState>,
     id: String,
+    force: Option<bool>,
 ) -> Result<Vec<ConfigSummary>, String> {
     let mut app = state.app.lock().map_err(|e| e.to_string())?;
-    app.sync_source(&id).map_err(|e| e.to_string())
+    app.sync_source(&id, force.unwrap_or(false)).map_err(|e| e.to_string())
 }
 
 // === Config 查询 ===
@@ -109,4 +144,19 @@ pub fn get_stats(state: State<AppState>) -> Result<Stats, String> {
 pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
     let app = state.app.lock().map_err(|e| e.to_string())?;
     Ok(app.get_settings())
+}
+
+#[tauri::command]
+pub fn update_settings(
+    state: State<'_, AppState>,
+    mode: SyncMode,
+) -> Result<(), String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.update_settings(mode).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_agents(state: State<AppState>) -> Result<Vec<AgentInfo>, String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    Ok(app.list_agents())
 }

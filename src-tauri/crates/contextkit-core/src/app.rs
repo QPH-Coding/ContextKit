@@ -3,8 +3,8 @@ use crate::agent::{AssignmentManager, AssignmentMechanism};
 use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::models::{
-    Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Settings, Source, Stats,
-    SyncMode,
+    AgentInfo, Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Settings, Source,
+    SourceType, Stats, SyncMode,
 };
 use crate::source::SourceManager;
 use std::collections::HashMap;
@@ -15,25 +15,38 @@ pub struct App {
     source_manager: SourceManager,
     agent_registry: AgentRegistry,
     assignment_manager: AssignmentManager,
+    settings: Settings,
 }
 
 impl App {
     pub fn new() -> Result<Self> {
         let source_manager = SourceManager::new()?;
+        let default_sync_mode = source_manager.config().load_settings()?.unwrap_or(SyncMode::Reference);
+        let settings = Settings {
+            config_dir: source_manager.config().config_dir().to_path_buf(),
+            default_sync_mode,
+        };
         Ok(Self {
             source_manager,
             agent_registry: AgentRegistry::new(),
             assignment_manager: AssignmentManager::new(),
+            settings,
         })
     }
 
     pub fn with_config_dir<P: AsRef<Path>>(dir: P) -> Result<Self> {
         let config = ConfigManager::with_dir(dir);
         let source_manager = SourceManager::with_config(config)?;
+        let default_sync_mode = source_manager.config().load_settings()?.unwrap_or(SyncMode::Reference);
+        let settings = Settings {
+            config_dir: source_manager.config().config_dir().to_path_buf(),
+            default_sync_mode,
+        };
         Ok(Self {
             source_manager,
             agent_registry: AgentRegistry::new(),
             assignment_manager: AssignmentManager::new(),
+            settings,
         })
     }
 
@@ -55,12 +68,42 @@ impl App {
         self.source_manager.remove_source(id)
     }
 
+    pub fn update_source_name(&mut self, id: &str, name: String) -> Result<()> {
+        self.source_manager.update_source_name(id, name)
+    }
+
+    pub fn update_source_ignore_dirs(&mut self, id: &str, ignore_dirs: Vec<String>) -> Result<()> {
+        self.source_manager.update_source_ignore_dirs(id, ignore_dirs)
+    }
+
+    pub fn check_source_updates(&self, id: &str) -> Result<bool> {
+        let source = self.source_manager.list_sources()
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
+        if !matches!(source.source_type, SourceType::Git { .. }) {
+            return Err(ContextKitError::InvalidPath("Not a git source".into()));
+        }
+        crate::source::git::has_updates(&source.local_path)
+    }
+
+    pub fn pull_source_updates(&self, id: &str) -> Result<()> {
+        let source = self.source_manager.list_sources()
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
+        if !matches!(source.source_type, SourceType::Git { .. }) {
+            return Err(ContextKitError::InvalidPath("Not a git source".into()));
+        }
+        crate::source::git::pull_repo(&source.local_path)
+    }
+
     pub fn list_sources(&self) -> Vec<Source> {
         self.source_manager.list_sources().to_vec()
     }
 
-    pub fn sync_source(&mut self, id: &str) -> Result<Vec<ConfigSummary>> {
-        self.source_manager.sync_source(id)
+    pub fn sync_source(&mut self, id: &str, force: bool) -> Result<Vec<ConfigSummary>> {
+        self.source_manager.sync_source(id, force)
     }
 
     // === Config 查询 ===
@@ -104,7 +147,25 @@ impl App {
                             abs_path.display()
                         )));
                     }
-                    let content = std::fs::read_to_string(&abs_path)?;
+                    let raw_content = std::fs::read_to_string(&abs_path)?;
+                    let content = if config.kind == ConfigKind::Mcp {
+                        // Extract individual server config from mcpServers
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw_content) {
+                            if let Some(servers) = json.get("mcpServers").and_then(|v| v.as_object()) {
+                                if let Some(server) = servers.get(&config.name) {
+                                    server.to_string()
+                                } else {
+                                    raw_content
+                                }
+                            } else {
+                                raw_content
+                            }
+                        } else {
+                            raw_content
+                        }
+                    } else {
+                        raw_content
+                    };
                     let assigned_agents: Vec<String> = self
                         .source_manager
                         .index()
@@ -315,10 +376,12 @@ impl App {
     }
 
     pub fn get_settings(&self) -> Settings {
-        Settings {
-            config_dir: self.source_manager.config().config_dir().to_path_buf(),
-            default_sync_mode: SyncMode::Reference,
-        }
+        self.settings.clone()
+    }
+
+    pub fn update_settings(&mut self, mode: SyncMode) -> Result<()> {
+        self.settings.default_sync_mode = mode;
+        self.source_manager.config().save_settings(mode)
     }
 
     // === 内部辅助 ===
@@ -332,6 +395,20 @@ impl App {
             }
         }
         None
+    }
+
+    pub fn list_agents(&self) -> Vec<AgentInfo> {
+        self.agent_registry
+            .list()
+            .iter()
+            .map(|a| AgentInfo {
+                id: a.id().to_string(),
+                name: a.name().to_string(),
+                supported_kinds: a.supported_kinds().to_vec(),
+                supports_user_scope: a.supports_scope(PathScope::User),
+                supports_project_scope: a.supports_scope(PathScope::Project),
+            })
+            .collect()
     }
 
     pub fn agent_registry(&self) -> &AgentRegistry {
@@ -419,7 +496,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        let configs = app.sync_source(&source.id).unwrap();
+        let configs = app.sync_source(&source.id, true).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Rule);
 
@@ -443,7 +520,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
 
         let config_id = app.list_configs(None, None)[0].id.clone();
         let detail = app.get_config(&config_id).unwrap();
@@ -474,7 +551,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
 
         let config_id = app.list_configs(None, None)[0].id.clone();
 
@@ -502,7 +579,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
 
         let config_id = app.list_configs(None, None)[0].id.clone();
         let result = app.assign_config(&config_id, "kimi", PathScope::User, None);
@@ -521,7 +598,7 @@ mod tests {
         let _ = fs::remove_dir_all(&project);
         fs::create_dir_all(&dir).unwrap();
         fs::create_dir_all(project.join(".cursor")).unwrap();
-        fs::write(dir.join("mcp.json"), r#"{"command": "new"}"#).unwrap();
+        fs::write(dir.join("mcp.json"), r#"{"mcpServers": {"mcp": {"command": "new"}}}"#).unwrap();
         fs::write(
             project.join(".cursor").join("mcp.json"),
             r#"{"mcpServers": {"existing": {"command": "old"}}}"#,
@@ -532,7 +609,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
 
         let config_id = app.list_configs(Some(ConfigKind::Mcp), None)[0].id.clone();
         app.assign_config(&config_id, "cursor", PathScope::Project, Some(&project))
@@ -562,7 +639,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
         let config_id = app.list_configs(None, None)[0].id.clone();
 
         fs::remove_file(rule).unwrap();
@@ -605,7 +682,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
 
         let stats = app.get_stats();
         assert_eq!(stats.source_count, 1);
@@ -628,6 +705,31 @@ mod tests {
     }
 
     #[test]
+    fn update_settings_persists_sync_mode() {
+        let mut app = temp_app("update-settings");
+        app.update_settings(SyncMode::Copy).unwrap();
+        assert_eq!(app.get_settings().default_sync_mode, SyncMode::Copy);
+
+        // 重新初始化应用，验证持久化
+        let config_dir = app.source_manager.config().config_dir().to_path_buf();
+        let app2 = App::with_config_dir(&config_dir).unwrap();
+        assert_eq!(app2.get_settings().default_sync_mode, SyncMode::Copy);
+
+        cleanup(&config_dir);
+    }
+
+    #[test]
+    fn list_agents_returns_builtin_agents() {
+        let app = temp_app("list-agents");
+        let agents = app.list_agents();
+        let ids: Vec<_> = agents.iter().map(|a| a.id.clone()).collect();
+        assert!(ids.contains(&"claude_code".to_string()));
+        assert!(ids.contains(&"cursor".to_string()));
+        assert!(ids.contains(&"kimi".to_string()));
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
     fn list_configs_filter_by_kind() {
         let dir = env::temp_dir().join(format!("ck-app-filter-src-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -642,7 +744,7 @@ mod tests {
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
 
         let all = app.list_configs(None, None);
         assert_eq!(all.len(), 2);
@@ -664,13 +766,13 @@ mod tests {
         let dir = env::temp_dir().join(format!("ck-app-filter-src2-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("mcp.json"), r#"{}"#).unwrap();
+        fs::write(dir.join("mcp.json"), r#"{"mcpServers": {"test-server": {}}}"#).unwrap();
 
         let mut app = temp_app("filter-source");
         let source = app
             .add_source(dir.to_string_lossy().to_string(), None)
             .unwrap();
-        app.sync_source(&source.id).unwrap();
+        app.sync_source(&source.id, true).unwrap();
 
         let by_source = app.list_configs(None, Some(&source.id));
         assert_eq!(by_source.len(), 1);
