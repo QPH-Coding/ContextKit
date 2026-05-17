@@ -68,22 +68,22 @@
 
 | # | 任务 | 优先级 | 状态 | 说明 |
 |---|------|--------|------|------|
-| 3.1 | 定义 Agent 工具注册表 | P0 | ⬜ | `agent/registry.rs`: `AgentRegistry` 结构体，管理所有 Agent 工具定义 |
-| 3.2 | 实现 Agent 工具 trait | P0 | ⬜ | `agent/mod.rs`: `AgentTool` trait（`user_config_paths`, `project_config_paths`, `assign`, `unassign` 等方法） |
-| 3.3 | 实现 Claude Code 支持 | P0 | ⬜ | `agent/claude_code.rs`: 用户级 `~/.claude/` + 项目级 `.claude/`，Symlink 机制 |
-| 3.4 | 实现 Codex 支持 | P0 | ⬜ | `agent/codex.rs`: 用户级 `~/.codex/` + 项目级 `.codex/` |
-| 3.5 | 实现 Cursor Rule 支持 | P0 | ⬜ | `agent/cursor.rs`: 用户级 `~/.cursor/rules/` + 项目级 `.cursorrules` |
-| 3.6 | 实现 Cursor MCP 支持 | P0 | ⬜ | `agent/cursor.rs`: MCP JSON 注入 |
-| 3.7 | 实现 Kimi 支持 | P0 | ⬜ | `agent/kimi.rs`: 用户级 `~/.kimi/skills/` |
-| 3.8 | 实现 CodeBuddy 支持 | P0 | ⬜ | `agent/codebuddy.rs`: 支持用户自定义路径 |
-| 3.9 | 实现 Claude Desktop MCP 支持 | P0 | ⬜ | `agent/claude_desktop.rs`: MCP JSON 注入 |
-| 3.10 | 实现 Symlink 分配 | P0 | ⬜ | 创建符号链接，Windows fallback 为复制 |
-| 3.11 | 实现 Copy 分配（fallback） | P0 | ⬜ | 文件复制，记录到索引 |
-| 3.12 | 实现 MCP JSON 注入 | P0 | ⬜ | 读取现有 JSON，合并/覆盖 `mcpServers`，写回 |
-| 3.13 | 实现取消分配（删除链接/文件/JSON 项） | P0 | ⬜ | 逆向操作，清理 Agent 工具目录 |
-| 3.14 | 实现冲突检测 | P0 | ⬜ | 分配前检查目标路径是否已存在同名文件 |
-| 3.15 | 跨平台路径处理 | P0 | ⬜ | 使用 `dirs` crate 处理 `~` 展开和系统路径差异 |
-| 3.16 | Agent 模块单元测试 | P0 | ⬜ | 用临时目录测试分配/取消分配/冲突检测 |
+| 3.1 | 定义 Agent 工具注册表 | P0 | ✅ | `agent/registry.rs`: `AgentRegistry` 结构体，管理所有 Agent 工具定义 |
+| 3.2 | 实现 Agent 工具 trait | P0 | ✅ | `agent/mod.rs`: `AgentTool` trait（`target_path`, `mechanism`, `supports_scope` 等方法） |
+| 3.3 | 实现 Claude Code 支持 | P0 | ✅ | 用户级 `~/.claude/` + 项目级 `.claude/`，Symlink 机制 |
+| 3.4 | 实现 Codex 支持 | P0 | ✅ | 用户级 `~/.codex/` + 项目级 `.codex/` |
+| 3.5 | 实现 Cursor Rule 支持 | P0 | ✅ | 用户级 `~/.cursor/rules/` + 项目级 `.cursorrules` |
+| 3.6 | 实现 Cursor MCP 支持 | P0 | ✅ | `~/.cursor/mcp.json`，MCP JSON 注入 |
+| 3.7 | 实现 Kimi 支持 | P0 | ✅ | 用户级 `~/.kimi/skills/`，仅 Skill |
+| 3.8 | 实现 CodeBuddy 支持 | P0 | ✅ | 支持用户自定义路径，默认无固定路径 |
+| 3.9 | 实现 Claude Desktop MCP 支持 | P0 | ✅ | `~/Library/Application Support/Claude/claude_desktop_config.json`，MCP JSON 注入 |
+| 3.10 | 实现 Symlink 分配 | P0 | ✅ | 创建符号链接，Windows fallback 为复制 |
+| 3.11 | 实现 Copy 分配（fallback） | P0 | ✅ | 文件复制 |
+| 3.12 | 实现 MCP JSON 注入 | P0 | ✅ | 读取现有 JSON，合并/覆盖 `mcpServers`，写回 |
+| 3.13 | 实现取消分配（删除链接/文件/JSON 项） | P0 | ✅ | 逆向操作，清理 Agent 工具目录 |
+| 3.14 | 实现冲突检测 | P0 | ✅ | 分配前检查目标路径是否已存在 |
+| 3.15 | 跨平台路径处理 | P0 | ✅ | 使用 `dirs` crate 处理 `~` 展开和系统路径差异（macOS/Windows/Linux） |
+| 3.16 | Agent 模块单元测试 | P0 | ✅ | 用临时目录测试分配/取消分配/冲突检测，全部通过 |
 
 ---
 
@@ -155,10 +155,10 @@
 
 ## 当前聚焦
 
-> 进入 Phase 0，从 Workspace 改造开始。
+> Phase 3 已完成（TDD 实现）。进入 Phase 4：GUI 实现（Tauri Commands + React 页面）。
 
 **下一步行动**：
-1. 改造 `src-tauri/Cargo.toml` 为 Workspace
-2. 创建 `crates/` 目录及四个子 crate
-3. 验证 `cargo build --workspace`
-4. 并行进行前端 Tailwind + shadcn/ui + TanStack Query 初始化
+1. 实现 Tauri Commands（Source / Config / Assignment / Global）
+2. 注册 Commands 到 Tauri Builder
+3. 前端搭建路由与布局框架
+4. 实现 Dashboard / Sources / Configs / Settings 页面

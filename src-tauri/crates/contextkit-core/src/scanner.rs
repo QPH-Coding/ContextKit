@@ -162,6 +162,7 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
+    use std::path::PathBuf;
 
     fn setup_test_dir(name: &str) -> PathBuf {
         let dir = env::temp_dir().join(format!("ck-scanner-test-{}-{}", std::process::id(), name));

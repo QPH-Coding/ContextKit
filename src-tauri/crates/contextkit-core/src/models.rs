@@ -17,6 +17,13 @@ pub enum SyncMode {
     Copy,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum PathScope {
+    User,
+    Project,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SourceType {
@@ -115,6 +122,22 @@ mod tests {
             let serialized = toml::to_string(&wrapper).unwrap();
             let deserialized: SyncModeWrapper = toml::from_str(&serialized).unwrap();
             assert_eq!(wrapper.mode, deserialized.mode);
+        }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct PathScopeWrapper {
+        scope: PathScope,
+    }
+
+    #[test]
+    fn path_scope_roundtrip() {
+        let scopes = vec![PathScope::User, PathScope::Project];
+        for scope in scopes {
+            let wrapper = PathScopeWrapper { scope };
+            let serialized = toml::to_string(&wrapper).unwrap();
+            let deserialized: PathScopeWrapper = toml::from_str(&serialized).unwrap();
+            assert_eq!(wrapper.scope, deserialized.scope);
         }
     }
 

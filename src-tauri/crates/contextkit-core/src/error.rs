@@ -31,6 +31,9 @@ pub enum ContextKitError {
 
     #[error("Git operation failed: {message}")]
     GitError { message: String },
+
+    #[error("JSON error: {0}")]
+    SerdeJson(#[from] serde_json::Error),
 }
 
 pub type Result<T> = std::result::Result<T, ContextKitError>;
