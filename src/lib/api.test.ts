@@ -5,6 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
     return Promise.resolve({ cmd, args });
   }),
+  isTauri: vi.fn(() => true),
 }));
 
 describe("api wrappers", () => {

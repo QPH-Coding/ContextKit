@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   Source,
   ConfigSummary,
@@ -12,6 +12,12 @@ export async function invokeCommand<T>(
   command: string,
   args?: Record<string, unknown>
 ): Promise<T> {
+  if (!isTauri()) {
+    throw new Error(
+      "ContextKit must run inside the Tauri application. " +
+        "Please start with 'bun tauri dev' instead of 'bun run dev'."
+    );
+  }
   return invoke<T>(command, args);
 }
 
