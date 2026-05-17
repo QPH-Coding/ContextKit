@@ -1,8 +1,9 @@
+use crate::error::Result;
+use crate::models::{ConfigKind, ConfigSummary};
+use crate::token::count_tokens_in_file;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use crate::error::Result;
-use crate::models::{ConfigKind, ConfigSummary};
 
 /// 扫描指定目录，返回发现的配置列表
 pub fn scan_directory(
@@ -56,6 +57,7 @@ fn visit_dir(
     let skill_md = current.join("SKILL.md");
     if skill_md.is_file() {
         let rel = relative_path(root, current);
+        let token_count = count_tokens_in_file(&skill_md)?;
         configs.push(ConfigSummary {
             id: make_config_id(source_id, rel),
             name: dir_name(current),
@@ -63,7 +65,7 @@ fn visit_dir(
             source_id: source_id.into(),
             source_name: source_name.into(),
             relative_path: rel.into(),
-            token_count: 0,
+            token_count,
         });
     }
 
@@ -82,19 +84,18 @@ fn visit_dir(
             } else {
                 visit_dir(root, &path, source_id, source_name, configs)?;
             }
-        } else if path.is_file() {
-            if name_str == "mcp.json" || name_str == ".mcp.json" {
-                let rel = relative_path(root, &path);
-                configs.push(ConfigSummary {
-                    id: make_config_id(source_id, rel),
-                    name: "mcp".into(),
-                    kind: ConfigKind::Mcp,
-                    source_id: source_id.into(),
-                    source_name: source_name.into(),
-                    relative_path: rel.into(),
-                    token_count: 0,
-                });
-            }
+        } else if path.is_file() && (name_str == "mcp.json" || name_str == ".mcp.json") {
+            let rel = relative_path(root, &path);
+            let token_count = count_tokens_in_file(&path)?;
+            configs.push(ConfigSummary {
+                id: make_config_id(source_id, rel),
+                name: "mcp".into(),
+                kind: ConfigKind::Mcp,
+                source_id: source_id.into(),
+                source_name: source_name.into(),
+                relative_path: rel.into(),
+                token_count,
+            });
         }
     }
 
@@ -113,6 +114,7 @@ fn scan_rules_dir(
         let path = entry.path();
         if path.is_file() {
             let rel = relative_path(root, &path);
+            let token_count = count_tokens_in_file(&path)?;
             configs.push(ConfigSummary {
                 id: make_config_id(source_id, rel),
                 name: name_from_path(&path),
@@ -120,7 +122,7 @@ fn scan_rules_dir(
                 source_id: source_id.into(),
                 source_name: source_name.into(),
                 relative_path: rel.into(),
-                token_count: 0,
+                token_count,
             });
         } else if path.is_dir() {
             scan_rules_dir(&path, root, source_id, source_name, configs)?;
@@ -141,6 +143,7 @@ fn scan_agents_dir(
         let path = entry.path();
         if path.is_file() {
             let rel = relative_path(root, &path);
+            let token_count = count_tokens_in_file(&path)?;
             configs.push(ConfigSummary {
                 id: make_config_id(source_id, rel),
                 name: name_from_path(&path),
@@ -148,7 +151,7 @@ fn scan_agents_dir(
                 source_id: source_id.into(),
                 source_name: source_name.into(),
                 relative_path: rel.into(),
-                token_count: 0,
+                token_count,
             });
         } else if path.is_dir() {
             scan_agents_dir(&path, root, source_id, source_name, configs)?;
@@ -194,6 +197,7 @@ mod tests {
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Skill);
         assert_eq!(configs[0].name, "coding-helper");
+        assert!(configs[0].token_count > 0);
 
         cleanup(&dir);
     }
@@ -209,6 +213,7 @@ mod tests {
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Rule);
         assert_eq!(configs[0].name, "typescript-style");
+        assert!(configs[0].token_count > 0);
 
         cleanup(&dir);
     }
@@ -313,7 +318,10 @@ mod tests {
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Skill);
         assert_eq!(configs[0].name, "c");
-        let rel_str = configs[0].relative_path.to_string_lossy().replace('\\', "/");
+        let rel_str = configs[0]
+            .relative_path
+            .to_string_lossy()
+            .replace('\\', "/");
         assert!(rel_str.contains("a/b/c"));
 
         cleanup(&dir);

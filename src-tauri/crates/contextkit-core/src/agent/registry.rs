@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use crate::agent::{AgentTool, AssignmentMechanism};
 use crate::models::{ConfigKind, PathScope};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// Agent 工具注册表
 pub struct AgentRegistry {
@@ -72,11 +72,14 @@ impl AgentTool for ClaudeCode {
 
     fn target_path(
         &self,
-        _kind: ConfigKind,
+        kind: ConfigKind,
         scope: PathScope,
         project_dir: Option<&Path>,
         source_path: &Path,
     ) -> Option<PathBuf> {
+        if !self.supported_kinds().contains(&kind) {
+            return None;
+        }
         let filename = source_path.file_name()?.to_str()?;
         match scope {
             PathScope::User => dirs::home_dir().map(|h| h.join(".claude").join(filename)),
@@ -110,11 +113,14 @@ impl AgentTool for Codex {
 
     fn target_path(
         &self,
-        _kind: ConfigKind,
+        kind: ConfigKind,
         scope: PathScope,
         project_dir: Option<&Path>,
         source_path: &Path,
     ) -> Option<PathBuf> {
+        if !self.supported_kinds().contains(&kind) {
+            return None;
+        }
         let filename = source_path.file_name()?.to_str()?;
         match scope {
             PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join(filename)),
@@ -201,14 +207,19 @@ impl AgentTool for Kimi {
 
     fn target_path(
         &self,
-        _kind: ConfigKind,
+        kind: ConfigKind,
         scope: PathScope,
         _project_dir: Option<&Path>,
         source_path: &Path,
     ) -> Option<PathBuf> {
+        if !self.supported_kinds().contains(&kind) {
+            return None;
+        }
         let filename = source_path.file_name()?.to_str()?;
         match scope {
-            PathScope::User => dirs::home_dir().map(|h| h.join(".kimi").join("skills").join(filename)),
+            PathScope::User => {
+                dirs::home_dir().map(|h| h.join(".kimi").join("skills").join(filename))
+            }
             PathScope::Project => None,
         }
     }
@@ -241,11 +252,14 @@ impl AgentTool for CodeBuddy {
 
     fn target_path(
         &self,
-        _kind: ConfigKind,
+        kind: ConfigKind,
         _scope: PathScope,
         _project_dir: Option<&Path>,
         _source_path: &Path,
     ) -> Option<PathBuf> {
+        if !self.supported_kinds().contains(&kind) {
+            return None;
+        }
         // CodeBuddy 默认无固定路径，需用户自定义
         None
     }
@@ -276,23 +290,26 @@ impl AgentTool for ClaudeDesktop {
 
     fn target_path(
         &self,
-        _kind: ConfigKind,
+        kind: ConfigKind,
         scope: PathScope,
         _project_dir: Option<&Path>,
         _source_path: &Path,
     ) -> Option<PathBuf> {
+        if !self.supported_kinds().contains(&kind) {
+            return None;
+        }
         match scope {
             PathScope::User => {
                 // macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
                 #[cfg(target_os = "macos")]
                 {
-                    dirs::home_dir()
-                        .map(|h| h.join("Library/Application Support/Claude/claude_desktop_config.json"))
+                    dirs::home_dir().map(|h| {
+                        h.join("Library/Application Support/Claude/claude_desktop_config.json")
+                    })
                 }
                 #[cfg(target_os = "windows")]
                 {
-                    dirs::data_dir()
-                        .map(|d| d.join("Claude").join("claude_desktop_config.json"))
+                    dirs::data_dir().map(|d| d.join("Claude").join("claude_desktop_config.json"))
                 }
                 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
                 {
@@ -423,8 +440,14 @@ mod tests {
     #[test]
     fn cursor_mechanism() {
         let agent = Cursor;
-        assert_eq!(agent.mechanism(ConfigKind::Rule), AssignmentMechanism::Symlink);
-        assert_eq!(agent.mechanism(ConfigKind::Mcp), AssignmentMechanism::JsonInject);
+        assert_eq!(
+            agent.mechanism(ConfigKind::Rule),
+            AssignmentMechanism::Symlink
+        );
+        assert_eq!(
+            agent.mechanism(ConfigKind::Mcp),
+            AssignmentMechanism::JsonInject
+        );
     }
 
     #[test]
@@ -442,7 +465,8 @@ mod tests {
         let agent = Kimi;
         let source = Path::new("/tmp/skills/coding/SKILL.md");
         let project = Path::new("/projects/myapp");
-        let target = agent.target_path(ConfigKind::Skill, PathScope::Project, Some(project), source);
+        let target =
+            agent.target_path(ConfigKind::Skill, PathScope::Project, Some(project), source);
         assert!(target.is_none());
     }
 
@@ -457,8 +481,7 @@ mod tests {
     fn codebuddy_default_no_target_path() {
         let agent = CodeBuddy;
         let source = Path::new("/tmp/skills/coding/SKILL.md");
-        let target = agent
-            .target_path(ConfigKind::Skill, PathScope::User, None, source);
+        let target = agent.target_path(ConfigKind::Skill, PathScope::User, None, source);
         assert!(target.is_none());
     }
 
@@ -527,8 +550,12 @@ mod tests {
         let redirected_target = dir.join("fake-claude").join("SKILL.md");
 
         let mgr = AssignmentManager::new();
-        mgr.assign(&source, &redirected_target, agent.mechanism(ConfigKind::Skill))
-            .unwrap();
+        mgr.assign(
+            &source,
+            &redirected_target,
+            agent.mechanism(ConfigKind::Skill),
+        )
+        .unwrap();
 
         assert!(redirected_target.is_symlink());
         let content = fs::read_to_string(&redirected_target).unwrap();
@@ -547,11 +574,18 @@ mod tests {
 
         let registry = AgentRegistry::new();
         let agent = registry.get("cursor").unwrap();
-        let redirected_target = dir.join("fake-cursor").join("rules").join("typescript-style.md");
+        let redirected_target = dir
+            .join("fake-cursor")
+            .join("rules")
+            .join("typescript-style.md");
 
         let mgr = AssignmentManager::new();
-        mgr.assign(&source, &redirected_target, agent.mechanism(ConfigKind::Rule))
-            .unwrap();
+        mgr.assign(
+            &source,
+            &redirected_target,
+            agent.mechanism(ConfigKind::Rule),
+        )
+        .unwrap();
 
         assert!(redirected_target.is_symlink());
 
@@ -576,7 +610,12 @@ mod tests {
 
         let content = fs::read_to_string(&target).unwrap();
         let json: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert!(json.get("mcpServers").unwrap().as_object().unwrap().contains_key("fs-server"));
+        assert!(json
+            .get("mcpServers")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("fs-server"));
 
         let _ = fs::remove_dir_all(&dir);
     }

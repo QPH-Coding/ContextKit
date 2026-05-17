@@ -64,6 +64,4 @@ export const assignmentApi = {
 export const globalApi = {
   getStats: () => invokeCommand<Stats>("get_stats", {}),
   getSettings: () => invokeCommand<Settings>("get_settings", {}),
-  updateSettings: (settings: Settings) =>
-    invokeCommand<void>("update_settings", { settings }),
 };

@@ -1,15 +1,15 @@
 pub mod git;
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
 use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::index::Index;
 use crate::models::{Assignment, ConfigSummary, Source, SourceType, SyncMode};
 use crate::scanner::scan_directory;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
-pub use git::{clone_repo, pull_repo, has_updates};
+pub use git::{clone_repo, has_updates, pull_repo};
 
 pub struct SourceManager {
     config: ConfigManager,
@@ -29,19 +29,31 @@ impl SourceManager {
     }
 
     /// 添加本地目录源
-    pub fn add_local_source(&mut self, path: PathBuf, name: Option<String>, mode: SyncMode) -> Result<Source> {
+    pub fn add_local_source(
+        &mut self,
+        path: PathBuf,
+        name: Option<String>,
+        mode: SyncMode,
+    ) -> Result<Source> {
         if !path.exists() {
-            return Err(ContextKitError::InvalidPath(
-                format!("Path does not exist: {}", path.display())
-            ));
+            return Err(ContextKitError::InvalidPath(format!(
+                "Path does not exist: {}",
+                path.display()
+            )));
         }
         if !path.is_dir() {
-            return Err(ContextKitError::InvalidPath(
-                format!("Path is not a directory: {}", path.display())
-            ));
+            return Err(ContextKitError::InvalidPath(format!(
+                "Path is not a directory: {}",
+                path.display()
+            )));
         }
 
         let id = make_source_id(&path.to_string_lossy());
+        if self.index.get_source(&id).is_some() {
+            return Err(ContextKitError::InvalidPath(format!(
+                "Source already exists: {id}"
+            )));
+        }
         let name = name.unwrap_or_else(|| {
             path.file_name()
                 .and_then(|n| n.to_str())
@@ -66,15 +78,26 @@ impl SourceManager {
     }
 
     /// 添加 Git 仓库源
-    pub fn add_git_source(&mut self, url: String, name: Option<String>, mode: SyncMode) -> Result<Source> {
+    pub fn add_git_source(
+        &mut self,
+        url: String,
+        name: Option<String>,
+        mode: SyncMode,
+    ) -> Result<Source> {
         let id = make_source_id(&url);
+        if self.index.get_source(&id).is_some() {
+            return Err(ContextKitError::InvalidPath(format!(
+                "Source already exists: {id}"
+            )));
+        }
         let dest = self.config.repos_dir().join(&id);
 
         // 克隆仓库
         git::clone_repo(&url, &dest)?;
 
         let name = name.unwrap_or_else(|| {
-            url.split('/').last()
+            url.split('/')
+                .next_back()
                 .and_then(|s| s.strip_suffix(".git"))
                 .unwrap_or("unknown")
                 .to_string()
@@ -83,7 +106,10 @@ impl SourceManager {
         let source = Source {
             id: id.clone(),
             name,
-            source_type: SourceType::Git { url: url.clone(), branch: "main".into() },
+            source_type: SourceType::Git {
+                url: url.clone(),
+                branch: "main".into(),
+            },
             local_path: dest,
             mode,
             last_scan_at: None,
@@ -108,7 +134,9 @@ impl SourceManager {
 
     /// 同步源：Git 源先 pull，然后扫描目录
     pub fn sync_source(&mut self, id: &str) -> Result<Vec<ConfigSummary>> {
-        let source = self.index.get_source(id)
+        let source = self
+            .index
+            .get_source(id)
             .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?
             .clone();
 
@@ -186,10 +214,36 @@ mod tests {
         let _ = fs::remove_dir_all(&source_dir);
         fs::create_dir_all(&source_dir).unwrap();
 
-        let source = mgr.add_local_source(source_dir.clone(), Some("My Local".into()), SyncMode::Reference).unwrap();
+        let source = mgr
+            .add_local_source(
+                source_dir.clone(),
+                Some("My Local".into()),
+                SyncMode::Reference,
+            )
+            .unwrap();
         assert_eq!(source.name, "My Local");
         assert!(matches!(source.source_type, SourceType::Local { .. }));
 
+        assert_eq!(mgr.list_sources().len(), 1);
+
+        cleanup(&source_dir);
+        cleanup(config.config_dir());
+    }
+
+    #[test]
+    fn add_local_source_rejects_duplicate() {
+        let config = temp_config("local-duplicate");
+        let mut mgr = SourceManager::with_config(config.clone()).unwrap();
+
+        let source_dir = env::temp_dir().join(format!("ck-local-dup-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&source_dir);
+        fs::create_dir_all(&source_dir).unwrap();
+
+        mgr.add_local_source(source_dir.clone(), None, SyncMode::Reference)
+            .unwrap();
+        let result = mgr.add_local_source(source_dir.clone(), None, SyncMode::Reference);
+
+        assert!(matches!(result, Err(ContextKitError::InvalidPath(_))));
         assert_eq!(mgr.list_sources().len(), 1);
 
         cleanup(&source_dir);
@@ -217,7 +271,9 @@ mod tests {
         let _ = fs::remove_dir_all(&source_dir);
         fs::create_dir_all(&source_dir).unwrap();
 
-        let source = mgr.add_local_source(source_dir.clone(), None, SyncMode::Reference).unwrap();
+        let source = mgr
+            .add_local_source(source_dir.clone(), None, SyncMode::Reference)
+            .unwrap();
         assert_eq!(mgr.list_sources().len(), 1);
 
         mgr.remove_source(&source.id).unwrap();
@@ -239,7 +295,9 @@ mod tests {
         fs::create_dir_all(source_dir.join("rules")).unwrap();
         fs::write(source_dir.join("rules").join("style.md"), "# Style").unwrap();
 
-        let source = mgr.add_local_source(source_dir.clone(), None, SyncMode::Reference).unwrap();
+        let source = mgr
+            .add_local_source(source_dir.clone(), None, SyncMode::Reference)
+            .unwrap();
         let configs = mgr.sync_source(&source.id).unwrap();
 
         assert_eq!(configs.len(), 1);
@@ -263,7 +321,8 @@ mod tests {
 
         {
             let mut mgr = SourceManager::with_config(config.clone()).unwrap();
-            mgr.add_local_source(source_dir.clone(), Some("Persisted".into()), SyncMode::Copy).unwrap();
+            mgr.add_local_source(source_dir.clone(), Some("Persisted".into()), SyncMode::Copy)
+                .unwrap();
             mgr.save().unwrap();
         }
 
@@ -300,19 +359,40 @@ mod tests {
         assert!(out.status.success());
 
         for cmd in [
-            vec!["-C", &work.to_string_lossy(), "config", "user.email", "t@t.com"],
+            vec![
+                "-C",
+                &work.to_string_lossy(),
+                "config",
+                "user.email",
+                "t@t.com",
+            ],
             vec!["-C", &work.to_string_lossy(), "config", "user.name", "T"],
         ] {
             Command::new("git").args(&cmd).output().unwrap();
         }
         fs::write(work.join("README.md"), "# Test").unwrap();
-        Command::new("git").args(["-C", &work.to_string_lossy(), "add", "."]).output().unwrap();
-        Command::new("git").args(["-C", &work.to_string_lossy(), "commit", "-m", "init"]).output().unwrap();
-        Command::new("git").args(["-C", &work.to_string_lossy(), "push", "origin", "HEAD"]).output().unwrap();
+        Command::new("git")
+            .args(["-C", &work.to_string_lossy(), "add", "."])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["-C", &work.to_string_lossy(), "commit", "-m", "init"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["-C", &work.to_string_lossy(), "push", "origin", "HEAD"])
+            .output()
+            .unwrap();
 
         // 添加 Git 源
         let mut mgr = SourceManager::with_config(config.clone()).unwrap();
-        let source = mgr.add_git_source(bare.to_string_lossy().to_string(), Some("BareRepo".into()), SyncMode::Reference).unwrap();
+        let source = mgr
+            .add_git_source(
+                bare.to_string_lossy().to_string(),
+                Some("BareRepo".into()),
+                SyncMode::Reference,
+            )
+            .unwrap();
 
         assert_eq!(source.name, "BareRepo");
         assert!(matches!(source.source_type, SourceType::Git { .. }));

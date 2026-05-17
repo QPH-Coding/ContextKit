@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
 use crate::error::{ContextKitError, Result};
 use crate::models::{ConfigKind, PathScope};
+use std::path::{Path, PathBuf};
 
 pub mod registry;
 
@@ -119,21 +119,18 @@ impl AssignmentManager {
 
     fn assign_json_inject(source: &Path, target: &Path) -> Result<PathBuf> {
         let source_content = std::fs::read_to_string(source)?;
-        let source_value: serde_json::Value = serde_json::from_str(&source_content)
-            .map_err(|e| ContextKitError::AssignmentConflict {
-                message: format!("Invalid MCP JSON in source: {e}"),
+        let source_value: serde_json::Value =
+            serde_json::from_str(&source_content).map_err(|e| {
+                ContextKitError::AssignmentConflict {
+                    message: format!("Invalid MCP JSON in source: {e}"),
+                }
             })?;
 
         let mut target_value = if target.exists() {
             let content = std::fs::read_to_string(target)?;
-            serde_json::from_str(&content).unwrap_or_else(|_| {
-                let mut map = serde_json::Map::new();
-                map.insert(
-                    "mcpServers".to_string(),
-                    serde_json::Value::Object(serde_json::Map::new()),
-                );
-                serde_json::Value::Object(map)
-            })
+            serde_json::from_str(&content).map_err(|e| ContextKitError::AssignmentConflict {
+                message: format!("Invalid MCP JSON in target: {e}"),
+            })?
         } else {
             let mut map = serde_json::Map::new();
             map.insert(
@@ -162,17 +159,22 @@ impl AssignmentManager {
             })
             .unwrap_or_else(|| "unknown".to_string());
 
-        let server_config = if let Some(servers) =
-            source_value.get("mcpServers").and_then(|v| v.as_object())
-        {
-            servers
-                .values()
-                .next()
-                .cloned()
-                .unwrap_or(source_value.clone())
-        } else {
-            source_value.clone()
-        };
+        if mcp_servers.contains_key(&server_name) {
+            return Err(ContextKitError::AssignmentConflict {
+                message: format!("MCP server already exists: {server_name}"),
+            });
+        }
+
+        let server_config =
+            if let Some(servers) = source_value.get("mcpServers").and_then(|v| v.as_object()) {
+                servers
+                    .values()
+                    .next()
+                    .cloned()
+                    .unwrap_or(source_value.clone())
+            } else {
+                source_value.clone()
+            };
 
         mcp_servers.insert(server_name, server_config);
 
@@ -186,11 +188,10 @@ impl AssignmentManager {
         }
 
         let content = std::fs::read_to_string(target)?;
-        let mut value: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
-            ContextKitError::AssignmentConflict {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| ContextKitError::AssignmentConflict {
                 message: format!("Invalid MCP JSON: {e}"),
-            }
-        })?;
+            })?;
 
         if let Some(servers) = value.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
             servers.remove(server_name);
@@ -279,7 +280,8 @@ mod tests {
         fs::write(&source, "content").unwrap();
 
         let mgr = AssignmentManager::new();
-        mgr.assign(&source, &target, AssignmentMechanism::Copy).unwrap();
+        mgr.assign(&source, &target, AssignmentMechanism::Copy)
+            .unwrap();
         assert!(target.exists());
 
         let _ = fs::remove_dir_all(&dir);
@@ -293,10 +295,12 @@ mod tests {
         fs::write(&source, "content").unwrap();
 
         let mgr = AssignmentManager::new();
-        mgr.assign(&source, &target, AssignmentMechanism::Symlink).unwrap();
+        mgr.assign(&source, &target, AssignmentMechanism::Symlink)
+            .unwrap();
         assert!(target.exists());
 
-        mgr.unassign(&target, AssignmentMechanism::Symlink, None).unwrap();
+        mgr.unassign(&target, AssignmentMechanism::Symlink, None)
+            .unwrap();
         assert!(!target.exists());
         assert!(source.exists()); // 源文件保留
 
@@ -311,9 +315,11 @@ mod tests {
         fs::write(&source, "content").unwrap();
 
         let mgr = AssignmentManager::new();
-        mgr.assign(&source, &target, AssignmentMechanism::Copy).unwrap();
+        mgr.assign(&source, &target, AssignmentMechanism::Copy)
+            .unwrap();
 
-        mgr.unassign(&target, AssignmentMechanism::Copy, None).unwrap();
+        mgr.unassign(&target, AssignmentMechanism::Copy, None)
+            .unwrap();
         assert!(!target.exists());
 
         let _ = fs::remove_dir_all(&dir);
@@ -365,6 +371,30 @@ mod tests {
         let servers = json.get("mcpServers").unwrap().as_object().unwrap();
         assert!(servers.contains_key("existing"));
         assert!(servers.contains_key("new-server"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn assign_json_inject_rejects_duplicate_server() {
+        let dir = temp_dir("mcp-duplicate");
+        let source = dir.join("existing.mcp.json");
+        let target = dir.join("mcp.json");
+
+        fs::write(
+            &target,
+            r#"{"mcpServers": {"existing": {"command": "old"}}}"#,
+        )
+        .unwrap();
+        fs::write(&source, r#"{"command": "new"}"#).unwrap();
+
+        let mgr = AssignmentManager::new();
+        let result = mgr.assign(&source, &target, AssignmentMechanism::JsonInject);
+
+        assert!(matches!(
+            result,
+            Err(ContextKitError::AssignmentConflict { .. })
+        ));
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use crate::agent::{AssignmentManager, AssignmentMechanism};
 use crate::agent::registry::AgentRegistry;
+use crate::agent::{AssignmentManager, AssignmentMechanism};
 use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::models::{
-    Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Source, Stats, Settings,
+    Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Settings, Source, Stats,
     SyncMode,
 };
 use crate::source::SourceManager;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// ContextKit 应用门面，封装所有业务逻辑
 pub struct App {
@@ -95,16 +95,16 @@ impl App {
                 if config.id == id {
                     let mut abs_path = source.local_path.join(&config.relative_path);
                     // Skill 配置指向目录，需要定位到 SKILL.md
-                    if config.kind == ConfigKind::Skill {
-                        if !abs_path.is_file() {
-                            abs_path = abs_path.join("SKILL.md");
-                        }
+                    if config.kind == ConfigKind::Skill && !abs_path.is_file() {
+                        abs_path = abs_path.join("SKILL.md");
                     }
-                    let content = if abs_path.is_file() {
-                        std::fs::read_to_string(&abs_path).unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
+                    if !abs_path.is_file() {
+                        return Err(ContextKitError::InvalidPath(format!(
+                            "Config file does not exist: {}",
+                            abs_path.display()
+                        )));
+                    }
+                    let content = std::fs::read_to_string(&abs_path)?;
                     let assigned_agents: Vec<String> = self
                         .source_manager
                         .index()
@@ -140,10 +140,18 @@ impl App {
         project_path: Option<&Path>,
     ) -> Result<()> {
         let config = self.get_config(config_id)?;
-        let agent = self
-            .agent_registry
-            .get(agent_id)
-            .ok_or_else(|| ContextKitError::AgentToolNotFound { id: agent_id.into() })?;
+        let agent = self.agent_registry.get(agent_id).ok_or_else(|| {
+            ContextKitError::AgentToolNotFound {
+                id: agent_id.into(),
+            }
+        })?;
+
+        if !agent.supported_kinds().contains(&config.kind) {
+            return Err(ContextKitError::InvalidPath(format!(
+                "Agent {agent_id} does not support config kind {:?}",
+                config.kind
+            )));
+        }
 
         if !agent.supports_scope(scope) {
             return Err(ContextKitError::InvalidPath(format!(
@@ -154,15 +162,20 @@ impl App {
         let source_path = &config.absolute_path;
         let target = agent
             .target_path(config.kind, scope, project_path, source_path)
-            .ok_or_else(|| ContextKitError::InvalidPath(format!(
-                "Agent {agent_id} has no target path for kind {:?} scope {:?}",
-                config.kind, scope
-            )))?;
+            .ok_or_else(|| {
+                ContextKitError::InvalidPath(format!(
+                    "Agent {agent_id} has no target path for kind {:?} scope {:?}",
+                    config.kind, scope
+                ))
+            })?;
 
         let mechanism = agent.mechanism(config.kind);
 
-        // 冲突检测
-        if self.assignment_manager.check_conflict(&target)? {
+        // JsonInject merges into an existing config file; file-level conflicts only apply to
+        // symlink/copy assignments.
+        if mechanism != AssignmentMechanism::JsonInject
+            && self.assignment_manager.check_conflict(&target)?
+        {
             return Err(ContextKitError::AssignmentConflict {
                 message: format!("Target already exists: {}", target.display()),
             });
@@ -184,10 +197,11 @@ impl App {
 
     pub fn unassign_config(&mut self, config_id: &str, agent_id: &str) -> Result<()> {
         let config = self.get_config(config_id)?;
-        let agent = self
-            .agent_registry
-            .get(agent_id)
-            .ok_or_else(|| ContextKitError::AgentToolNotFound { id: agent_id.into() })?;
+        let agent = self.agent_registry.get(agent_id).ok_or_else(|| {
+            ContextKitError::AgentToolNotFound {
+                id: agent_id.into(),
+            }
+        })?;
 
         // 查找已有的 assignment 以确定 scope 和 project_path
         let assignment = self
@@ -197,9 +211,7 @@ impl App {
             .into_iter()
             .find(|a| a.agent_id == agent_id)
             .ok_or_else(|| ContextKitError::AssignmentConflict {
-                message: format!(
-                    "Config {config_id} is not assigned to agent {agent_id}"
-                ),
+                message: format!("Config {config_id} is not assigned to agent {agent_id}"),
             })?;
 
         let scope = if assignment.project_path.is_some() {
@@ -211,23 +223,22 @@ impl App {
         let source_path = &config.absolute_path;
         let target = agent
             .target_path(config.kind, scope, project_path, source_path)
-            .ok_or_else(|| ContextKitError::InvalidPath(format!(
-                "Agent {agent_id} has no target path for kind {:?} scope {:?}",
-                config.kind, scope
-            )))?;
+            .ok_or_else(|| {
+                ContextKitError::InvalidPath(format!(
+                    "Agent {agent_id} has no target path for kind {:?} scope {:?}",
+                    config.kind, scope
+                ))
+            })?;
 
         let mechanism = agent.mechanism(config.kind);
         let server_name = if mechanism == AssignmentMechanism::JsonInject {
-            source_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| {
-                    if s.ends_with(".mcp") {
-                        s.trim_end_matches(".mcp").to_string()
-                    } else {
-                        s.to_string()
-                    }
-                })
+            source_path.file_stem().and_then(|s| s.to_str()).map(|s| {
+                if s.ends_with(".mcp") {
+                    s.trim_end_matches(".mcp").to_string()
+                } else {
+                    s.to_string()
+                }
+            })
         } else {
             None
         };
@@ -384,7 +395,9 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let mut app = temp_app("remove");
-        let source = app.add_source(dir.to_string_lossy().to_string(), None).unwrap();
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
         assert_eq!(app.list_sources().len(), 1);
 
         app.remove_source(&source.id).unwrap();
@@ -403,7 +416,9 @@ mod tests {
         fs::write(dir.join("rules").join("style.md"), "# Style").unwrap();
 
         let mut app = temp_app("sync");
-        let source = app.add_source(dir.to_string_lossy().to_string(), None).unwrap();
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
         let configs = app.sync_source(&source.id).unwrap();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, ConfigKind::Rule);
@@ -425,7 +440,9 @@ mod tests {
         fs::write(dir.join("rules").join("style.md"), "# Style Rules").unwrap();
 
         let mut app = temp_app("get-config");
-        let source = app.add_source(dir.to_string_lossy().to_string(), None).unwrap();
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
         app.sync_source(&source.id).unwrap();
 
         let config_id = app.list_configs(None, None)[0].id.clone();
@@ -454,7 +471,9 @@ mod tests {
         fs::write(dir.join("rules").join("style.md"), "# Style").unwrap();
 
         let mut app = temp_app("assign");
-        let source = app.add_source(dir.to_string_lossy().to_string(), None).unwrap();
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
         app.sync_source(&source.id).unwrap();
 
         let config_id = app.list_configs(None, None)[0].id.clone();
@@ -466,6 +485,90 @@ mod tests {
         // 不直接测试文件系统分配（因为会写入 ~/.claude），而是测试冲突检测和错误处理
         let result = app.assign_config(&config_id, "nonexistent_agent", PathScope::User, None);
         assert!(result.is_err());
+
+        cleanup(&dir);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn assign_rejects_unsupported_config_kind() {
+        let dir = env::temp_dir().join(format!("ck-app-assign-kind-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("rules")).unwrap();
+        fs::write(dir.join("rules").join("style.md"), "# Style").unwrap();
+
+        let mut app = temp_app("assign-kind");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+        app.sync_source(&source.id).unwrap();
+
+        let config_id = app.list_configs(None, None)[0].id.clone();
+        let result = app.assign_config(&config_id, "kimi", PathScope::User, None);
+
+        assert!(matches!(result, Err(ContextKitError::InvalidPath(_))));
+
+        cleanup(&dir);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn assign_cursor_project_mcp_merges_existing_target() {
+        let dir = env::temp_dir().join(format!("ck-app-mcp-src-{}", std::process::id()));
+        let project = env::temp_dir().join(format!("ck-app-mcp-project-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&project);
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(project.join(".cursor")).unwrap();
+        fs::write(dir.join("mcp.json"), r#"{"command": "new"}"#).unwrap();
+        fs::write(
+            project.join(".cursor").join("mcp.json"),
+            r#"{"mcpServers": {"existing": {"command": "old"}}}"#,
+        )
+        .unwrap();
+
+        let mut app = temp_app("assign-mcp-merge");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+        app.sync_source(&source.id).unwrap();
+
+        let config_id = app.list_configs(Some(ConfigKind::Mcp), None)[0].id.clone();
+        app.assign_config(&config_id, "cursor", PathScope::Project, Some(&project))
+            .unwrap();
+
+        let content = fs::read_to_string(project.join(".cursor").join("mcp.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let servers = json.get("mcpServers").unwrap().as_object().unwrap();
+        assert!(servers.contains_key("existing"));
+        assert!(servers.contains_key("mcp"));
+
+        cleanup(&dir);
+        cleanup(&project);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn get_config_errors_when_indexed_file_is_missing() {
+        let dir = env::temp_dir().join(format!("ck-app-missing-file-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("rules")).unwrap();
+        let rule = dir.join("rules").join("style.md");
+        fs::write(&rule, "# Style").unwrap();
+
+        let mut app = temp_app("missing-file");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+        app.sync_source(&source.id).unwrap();
+        let config_id = app.list_configs(None, None)[0].id.clone();
+
+        fs::remove_file(rule).unwrap();
+        let result = app.get_config(&config_id);
+
+        assert!(matches!(result, Err(ContextKitError::InvalidPath(_))));
 
         cleanup(&dir);
         cleanup(app.source_manager.config().config_dir());
@@ -499,15 +602,16 @@ mod tests {
         fs::write(dir.join("rules").join("b.md"), "# B").unwrap();
 
         let mut app = temp_app("stats");
-        let source = app.add_source(dir.to_string_lossy().to_string(), None).unwrap();
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
         app.sync_source(&source.id).unwrap();
 
         let stats = app.get_stats();
         assert_eq!(stats.source_count, 1);
         assert_eq!(stats.total_configs, 2);
         assert_eq!(stats.configs_by_kind.get(&ConfigKind::Rule), Some(&2));
-        // token 计数在 scanner 中当前为 0（待集成 tiktoken）
-        // assert!(stats.total_tokens > 0);
+        assert!(stats.total_tokens > 0);
 
         cleanup(&dir);
         cleanup(app.source_manager.config().config_dir());
@@ -535,7 +639,9 @@ mod tests {
         fs::write(skill_dir.join("SKILL.md"), "# Coding").unwrap();
 
         let mut app = temp_app("filter");
-        let source = app.add_source(dir.to_string_lossy().to_string(), None).unwrap();
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
         app.sync_source(&source.id).unwrap();
 
         let all = app.list_configs(None, None);
@@ -561,7 +667,9 @@ mod tests {
         fs::write(dir.join("mcp.json"), r#"{}"#).unwrap();
 
         let mut app = temp_app("filter-source");
-        let source = app.add_source(dir.to_string_lossy().to_string(), None).unwrap();
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
         app.sync_source(&source.id).unwrap();
 
         let by_source = app.list_configs(None, Some(&source.id));

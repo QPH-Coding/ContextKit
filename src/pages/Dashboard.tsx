@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { globalApi, sourceApi } from "@/lib/api";
 import { Database, FileText, Zap, Layers } from "lucide-react";
 
@@ -97,9 +98,9 @@ export default function Dashboard() {
         <div className="rounded-lg border border-dashed p-8 text-center">
           <p className="text-muted-foreground">
             No sources yet. Go to{" "}
-            <a href="#/sources" className="text-primary underline">
+            <Link to="/sources" className="text-primary underline">
               Sources
-            </a>{" "}
+            </Link>{" "}
             to add one.
           </p>
         </div>
