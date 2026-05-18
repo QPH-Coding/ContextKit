@@ -526,24 +526,23 @@ export default function Sources() {
                 <Label className="text-sm font-medium">
                   Ignore Directories
                 </Label>
-                <div className="mt-2 flex flex-wrap gap-1">
+                <div className="mt-2 space-y-1">
                   {drawerIgnoreDirs.length === 0 && (
                     <p className="text-xs text-muted-foreground">
                       No ignored directories yet.
                     </p>
                   )}
                   {drawerIgnoreDirs.map((dir) => (
-                    <Badge
+                    <div
                       key={dir}
-                      variant="secondary"
-                      className="gap-1 pr-1"
+                      className="flex items-center justify-between py-1.5 px-2 rounded-md bg-muted/50 text-sm"
                     >
-                      {dir}
+                      <span className="truncate">{dir}</span>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
                         onClick={() =>
                           setDrawerIgnoreDirs((prev) =>
                             prev.filter((d) => d !== dir)
@@ -551,9 +550,9 @@ export default function Sources() {
                         }
                         aria-label={`Stop ignoring ${dir}`}
                       >
-                        <X className="w-3 h-3" />
+                        <X className="w-3.5 h-3.5" />
                       </Button>
-                    </Badge>
+                    </div>
                   ))}
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row mt-3">
