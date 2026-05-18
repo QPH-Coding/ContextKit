@@ -81,9 +81,18 @@ impl AgentTool for ClaudeCode {
             return None;
         }
         let filename = source_path.file_name()?.to_str()?;
-        match scope {
-            PathScope::User => dirs::home_dir().map(|h| h.join(".claude").join(filename)),
-            PathScope::Project => project_dir.map(|p| p.join(".claude").join(filename)),
+        match kind {
+            ConfigKind::Skill => {
+                let parent = source_path.parent()?.file_name()?.to_str()?;
+                match scope {
+                    PathScope::User => dirs::home_dir().map(|h| h.join(".claude").join(parent)),
+                    PathScope::Project => project_dir.map(|p| p.join(".claude").join(parent)),
+                }
+            }
+            _ => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".claude").join(filename)),
+                PathScope::Project => project_dir.map(|p| p.join(".claude").join(filename)),
+            }
         }
     }
 
@@ -126,9 +135,18 @@ impl AgentTool for Codex {
             return None;
         }
         let filename = source_path.file_name()?.to_str()?;
-        match scope {
-            PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join(filename)),
-            PathScope::Project => project_dir.map(|p| p.join(".codex").join(filename)),
+        match kind {
+            ConfigKind::Skill => {
+                let parent = source_path.parent()?.file_name()?.to_str()?;
+                match scope {
+                    PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join(parent)),
+                    PathScope::Project => project_dir.map(|p| p.join(".codex").join(parent)),
+                }
+            }
+            _ => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join(filename)),
+                PathScope::Project => project_dir.map(|p| p.join(".codex").join(filename)),
+            }
         }
     }
 
@@ -227,10 +245,10 @@ impl AgentTool for Kimi {
         if !self.supported_kinds().contains(&kind) {
             return None;
         }
-        let filename = source_path.file_name()?.to_str()?;
+        let parent = source_path.parent()?.file_name()?.to_str()?;
         match scope {
             PathScope::User => {
-                dirs::home_dir().map(|h| h.join(".kimi").join("skills").join(filename))
+                dirs::home_dir().map(|h| h.join(".kimi").join("skills").join(parent))
             }
             PathScope::Project => None,
         }
@@ -405,7 +423,7 @@ mod tests {
         let target = agent
             .target_path(ConfigKind::Skill, PathScope::User, None, source)
             .unwrap();
-        assert_eq!(target, home_dir().join(".claude/SKILL.md"));
+        assert_eq!(target, home_dir().join(".claude/coding"));
     }
 
     #[test]
@@ -416,7 +434,7 @@ mod tests {
         let target = agent
             .target_path(ConfigKind::Skill, PathScope::Project, Some(project), source)
             .unwrap();
-        assert_eq!(target, PathBuf::from("/projects/myapp/.claude/SKILL.md"));
+        assert_eq!(target, PathBuf::from("/projects/myapp/.claude/coding"));
     }
 
     #[test]
@@ -492,7 +510,7 @@ mod tests {
         let target = agent
             .target_path(ConfigKind::Skill, PathScope::User, None, source)
             .unwrap();
-        assert_eq!(target, home_dir().join(".kimi/skills/SKILL.md"));
+        assert_eq!(target, home_dir().join(".kimi/skills/coding"));
     }
 
     #[test]
@@ -525,13 +543,19 @@ mod tests {
         let agent = ClaudeDesktop;
         let source = Path::new("/tmp/mcp/my-mcp.json");
         let target = agent
-            .target_path(ConfigKind::Mcp, PathScope::User, None, source)
-            .unwrap();
+            .target_path(ConfigKind::Mcp, PathScope::User, None, source);
         #[cfg(target_os = "macos")]
         assert_eq!(
-            target,
+            target.unwrap(),
             home_dir().join("Library/Application Support/Claude/claude_desktop_config.json")
         );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            target.unwrap(),
+            dirs::data_dir().unwrap().join("Claude").join("claude_desktop_config.json")
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        assert!(target.is_none());
     }
 
     #[test]
@@ -572,7 +596,9 @@ mod tests {
         use crate::agent::AssignmentManager;
 
         let dir = temp_dir("e2e-claude");
-        let source = dir.join("SKILL.md");
+        let source_dir = dir.join("coding");
+        fs::create_dir_all(&source_dir).unwrap();
+        let source = source_dir.join("SKILL.md");
         fs::write(&source, "# Coding Skill").unwrap();
 
         let registry = AgentRegistry::new();
@@ -582,18 +608,18 @@ mod tests {
             .unwrap();
 
         // 将 target 重定向到临时目录（避免污染真实 ~/.claude）
-        let redirected_target = dir.join("fake-claude").join("SKILL.md");
+        let redirected_target = dir.join("fake-claude").join("coding");
 
         let mgr = AssignmentManager::new();
         mgr.assign(
-            &source,
+            &source_dir,
             &redirected_target,
             agent.mechanism(ConfigKind::Skill),
         )
         .unwrap();
 
         assert!(redirected_target.is_symlink());
-        let content = fs::read_to_string(&redirected_target).unwrap();
+        let content = fs::read_to_string(redirected_target.join("SKILL.md")).unwrap();
         assert_eq!(content, "# Coding Skill");
 
         let _ = fs::remove_dir_all(&dir);

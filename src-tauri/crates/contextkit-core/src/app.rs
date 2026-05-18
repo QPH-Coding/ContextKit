@@ -21,41 +21,69 @@ pub struct App {
 impl App {
     pub fn new() -> Result<Self> {
         let source_manager = SourceManager::new()?;
-        let (default_sync_mode, agent_dirs) = source_manager
+        let (default_sync_mode, mut agent_dirs) = source_manager
             .config()
             .load_settings()?
             .unwrap_or((SyncMode::Reference, std::collections::HashMap::new()));
+        let agent_registry = AgentRegistry::new();
+        let mut changed = false;
+        for agent in agent_registry.list() {
+            if let Some(dir) = agent.default_home_dir() {
+                if dir.exists() && !agent_dirs.contains_key(agent.id()) {
+                    agent_dirs.insert(agent.id().to_string(), dir.to_string_lossy().to_string());
+                    changed = true;
+                }
+            }
+        }
         let settings = Settings {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
             agent_dirs,
         };
-        Ok(Self {
+        let app = Self {
             source_manager,
-            agent_registry: AgentRegistry::new(),
+            agent_registry,
             assignment_manager: AssignmentManager::new(),
             settings,
-        })
+        };
+        if changed {
+            let _ = app.save_settings();
+        }
+        Ok(app)
     }
 
     pub fn with_config_dir<P: AsRef<Path>>(dir: P) -> Result<Self> {
         let config = ConfigManager::with_dir(dir);
         let source_manager = SourceManager::with_config(config)?;
-        let (default_sync_mode, agent_dirs) = source_manager
+        let (default_sync_mode, mut agent_dirs) = source_manager
             .config()
             .load_settings()?
             .unwrap_or((SyncMode::Reference, std::collections::HashMap::new()));
+        let agent_registry = AgentRegistry::new();
+        let mut changed = false;
+        for agent in agent_registry.list() {
+            if let Some(dir) = agent.default_home_dir() {
+                if dir.exists() && !agent_dirs.contains_key(agent.id()) {
+                    agent_dirs.insert(agent.id().to_string(), dir.to_string_lossy().to_string());
+                    changed = true;
+                }
+            }
+        }
         let settings = Settings {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
             agent_dirs,
         };
-        Ok(Self {
+        let app = Self {
             source_manager,
-            agent_registry: AgentRegistry::new(),
+            agent_registry,
             assignment_manager: AssignmentManager::new(),
             settings,
-        })
+        };
+        if changed {
+            let _ = app.save_settings();
+        }
+        Ok(app)
     }
 
     // === Source 管理 ===
@@ -296,6 +324,17 @@ impl App {
 
         let mechanism = agent.mechanism(config.kind);
 
+        // For Skill configs, symlink/copy the parent directory instead of the file.
+        let source = if config.kind == ConfigKind::Skill {
+            source_path.parent().ok_or_else(|| {
+                ContextKitError::InvalidPath(
+                    "Skill config has no parent directory".into(),
+                )
+            })?
+        } else {
+            source_path
+        };
+
         // JsonInject merges into an existing config file; file-level conflicts only apply to
         // symlink/copy assignments.
         if mechanism != AssignmentMechanism::JsonInject
@@ -317,7 +356,7 @@ impl App {
                 .assign_json_server(&target, &config.name, server_config)?;
         } else {
             self.assignment_manager
-                .assign(source_path, &target, mechanism)?;
+                .assign(source, &target, mechanism)?;
         }
 
         let assignment = Assignment {
@@ -450,7 +489,13 @@ impl App {
 
     pub fn update_settings(&mut self, mode: SyncMode) -> Result<()> {
         self.settings.default_sync_mode = mode;
-        self.source_manager.config().save_settings(mode, &self.settings.agent_dirs)
+        self.save_settings()
+    }
+
+    fn save_settings(&self) -> Result<()> {
+        self.source_manager
+            .config()
+            .save_settings(self.settings.default_sync_mode, &self.settings.agent_dirs)
     }
 
     pub fn list_agent_settings(&self) -> Vec<AgentSetting> {
@@ -459,20 +504,11 @@ impl App {
             .iter()
             .map(|a| {
                 let id = a.id().to_string();
-                let default_dir = a.default_home_dir();
-                let detected_dir = default_dir.and_then(|d| {
-                    if d.exists() {
-                        Some(d.to_string_lossy().to_string())
-                    } else {
-                        None
-                    }
-                });
-                let custom_dir = self.settings.agent_dirs.get(&id).cloned();
+                let dir = self.settings.agent_dirs.get(&id).cloned();
                 AgentSetting {
                     id: id.clone(),
                     name: a.name().to_string(),
-                    detected_dir,
-                    custom_dir,
+                    dir,
                 }
             })
             .collect()

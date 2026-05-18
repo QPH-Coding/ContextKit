@@ -20,7 +20,14 @@ export default function Sidebar() {
   return (
     <aside className="sticky top-0 z-20 flex h-auto w-full flex-col border-b bg-card md:h-screen md:w-56 md:border-b-0 md:border-r">
       <div className="border-b p-4">
-        <h1 className="text-lg font-bold tracking-tight">ContextKit</h1>
+        <div className="flex items-center gap-2">
+          <img
+            src="/icon.png"
+            alt="ContextKit"
+            className="h-8 w-8 object-contain rounded"
+          />
+          <h1 className="text-lg font-bold tracking-tight">ContextKit</h1>
+        </div>
       </div>
       <nav
         className="flex gap-1 overflow-x-auto p-2 md:flex-1 md:flex-col md:space-y-1 md:overflow-visible"

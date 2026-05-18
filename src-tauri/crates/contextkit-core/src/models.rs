@@ -116,8 +116,7 @@ pub struct AgentInfo {
 pub struct AgentSetting {
     pub id: String,
     pub name: String,
-    pub detected_dir: Option<String>,
-    pub custom_dir: Option<String>,
+    pub dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

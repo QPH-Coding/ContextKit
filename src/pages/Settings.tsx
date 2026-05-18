@@ -75,10 +75,6 @@ export default function Settings() {
 
   const currentMode = selectedMode ?? settings?.default_sync_mode ?? "reference";
 
-  const getDisplayDir = (agent: AgentSetting) => {
-    return agent.custom_dir ?? agent.detected_dir ?? "";
-  };
-
   const handleAgentDirChange = (agentId: string, value: string) => {
     setAgentDirInputs((prev) => ({ ...prev, [agentId]: value }));
   };
@@ -99,7 +95,7 @@ export default function Settings() {
   const isAgentDirDirty = (agent: AgentSetting) => {
     const input = agentDirInputs[agent.id];
     if (input === undefined) return false;
-    const current = getDisplayDir(agent);
+    const current = agent.dir ?? "";
     return input.trim() !== current;
   };
 
@@ -197,13 +193,12 @@ export default function Settings() {
           {agentSettings && !isAgentsError && (
             <div className="space-y-3">
               {agentSettings.map((agent) => {
-                const displayDir = getDisplayDir(agent);
                 const inputValue =
                   agentDirInputs[agent.id] !== undefined
                     ? agentDirInputs[agent.id]
-                    : displayDir;
+                    : (agent.dir ?? "");
                 const dirty = isAgentDirDirty(agent);
-                const hasCustom = !!agent.custom_dir;
+                const hasDir = !!agent.dir;
 
                 return (
                   <div
@@ -217,11 +212,7 @@ export default function Settings() {
                     <div className="flex items-center gap-2 mt-1.5">
                       <Input
                         type="text"
-                        placeholder={
-                          agent.detected_dir
-                            ? `Detected: ${agent.detected_dir}`
-                            : "Not detected"
-                        }
+                        placeholder="Not configured"
                         value={inputValue}
                         onChange={(e) =>
                           handleAgentDirChange(agent.id, e.target.value)
@@ -241,7 +232,7 @@ export default function Settings() {
                           <Save className="w-4 h-4" />
                         </Button>
                       )}
-                      {hasCustom && !dirty && (
+                      {hasDir && !dirty && (
                         <Button
                           type="button"
                           variant="ghost"
@@ -249,17 +240,12 @@ export default function Settings() {
                           className="h-8 w-8 shrink-0 text-muted-foreground"
                           onClick={() => handleClearAgentDir(agent.id)}
                           disabled={updateAgentDirMutation.isPending}
-                          title="Reset to detected"
+                          title="Clear"
                         >
                           <X className="w-4 h-4" />
                         </Button>
                       )}
                     </div>
-                    {agent.custom_dir && agent.detected_dir && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Detected: {agent.detected_dir}
-                      </p>
-                    )}
                   </div>
                 );
               })}

@@ -92,8 +92,13 @@ impl AssignmentManager {
         match mechanism {
             AssignmentMechanism::Symlink | AssignmentMechanism::Copy => {
                 if target.exists() {
-                    // 如果是符号链接或普通文件，都删除
-                    if target.is_symlink() || target.is_file() {
+                    if target.is_symlink() {
+                        // Symlink: try remove_file first (works for file symlinks on all platforms);
+                        // fall back to remove_dir for directory symlinks on Windows.
+                        if std::fs::remove_file(target).is_err() {
+                            let _ = std::fs::remove_dir(target);
+                        }
+                    } else if target.is_file() {
                         std::fs::remove_file(target)?;
                     } else if target.is_dir() {
                         std::fs::remove_dir_all(target)?;
@@ -117,16 +122,44 @@ impl AssignmentManager {
         }
         #[cfg(windows)]
         {
-            if std::os::windows::fs::symlink_file(source, target).is_err() {
-                return Self::assign_copy(source, target);
+            if source.is_dir() {
+                if std::os::windows::fs::symlink_dir(source, target).is_err() {
+                    return Self::assign_copy(source, target);
+                }
+            } else {
+                if std::os::windows::fs::symlink_file(source, target).is_err() {
+                    return Self::assign_copy(source, target);
+                }
             }
         }
         Ok(target.to_path_buf())
     }
 
     fn assign_copy(source: &Path, target: &Path) -> Result<PathBuf> {
-        std::fs::copy(source, target)?;
+        if source.is_dir() {
+            Self::copy_dir_all(source, target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(source, target)?;
+        }
         Ok(target.to_path_buf())
+    }
+
+    fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if src_path.is_dir() {
+                Self::copy_dir_all(&src_path, &dst_path)?;
+            } else {
+                std::fs::copy(&src_path, &dst_path)?;
+            }
+        }
+        Ok(())
     }
 
     fn assign_json_inject(source: &Path, target: &Path) -> Result<PathBuf> {

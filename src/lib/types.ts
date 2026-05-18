@@ -62,8 +62,7 @@ export interface AgentInfo {
 export interface AgentSetting {
   id: string;
   name: string;
-  detected_dir?: string;
-  custom_dir?: string;
+  dir?: string;
 }
 
 export interface ConfigsGroup {
