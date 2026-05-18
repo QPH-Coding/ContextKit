@@ -16,6 +16,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import DirectoryTree from "@/components/DirectoryTree";
 import {
   Plus,
   Trash2,
@@ -26,8 +28,7 @@ import {
   GitBranch,
   Settings2,
   Loader2,
-  Download,
-  Bell,
+  Sparkles,
   HardDrive,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -41,6 +42,8 @@ export default function Sources() {
   const [updateStatus, setUpdateStatus] = useState<Record<string, boolean>>({});
   const [drawerName, setDrawerName] = useState("");
   const [drawerIgnoreDirs, setDrawerIgnoreDirs] = useState<string[]>([]);
+  const [pullingId, setPullingId] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   const {
     data: sources,
@@ -102,6 +105,13 @@ export default function Sources() {
       toast.error(`Sync failed: ${errorMessage(err)}`);
     },
   });
+
+  const handleSync = (id: string) => {
+    setSyncingId(id);
+    syncMutation.mutate(id, {
+      onSettled: () => setSyncingId(null),
+    });
+  };
 
   const saveConfigMutation = useMutation({
     mutationFn: async ({
@@ -167,6 +177,13 @@ export default function Sources() {
     },
   });
 
+  const handlePull = (id: string) => {
+    setPullingId(id);
+    pullUpdatesMutation.mutate(id, {
+      onSettled: () => setPullingId(null),
+    });
+  };
+
   const pullAllUpdatesMutation = useMutation({
     mutationFn: () => sourceApi.pullAllSourceUpdates(),
     onSuccess: (results) => {
@@ -187,6 +204,16 @@ export default function Sources() {
     },
   });
 
+  const deriveDefaultName = (input: string) => {
+    if (!input) return "";
+    return input
+      .trim()
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop()
+      ?.replace(/\.git$/, "") ?? "";
+  };
+
   const openFilePicker = async () => {
     const selected = await open({
       directory: true,
@@ -194,6 +221,9 @@ export default function Sources() {
     });
     if (selected && typeof selected === "string") {
       setUrlOrPath(selected);
+      if (!name) {
+        setName(deriveDefaultName(selected));
+      }
     }
   };
 
@@ -248,7 +278,7 @@ export default function Sources() {
               {pullAllUpdatesMutation.isPending ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Download className="w-3.5 h-3.5" />
+                <RefreshCw className="w-3.5 h-3.5" />
               )}
               Update All ({updateCount})
             </Button>
@@ -266,7 +296,13 @@ export default function Sources() {
             <Input
               type="text"
               value={urlOrPath}
-              onChange={(e) => setUrlOrPath(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setUrlOrPath(value);
+                if (!name) {
+                  setName(deriveDefaultName(value));
+                }
+              }}
             />
           </div>
           <Button
@@ -285,6 +321,7 @@ export default function Sources() {
             </Label>
             <Input
               type="text"
+              placeholder="Defaults to repo or folder name"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -306,34 +343,33 @@ export default function Sources() {
         )}
       </Card>
 
-      <Card className="p-4">
-        {isLoading && (
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        )}
-        {isError && (
-          <div className="space-y-3">
-            <p className="text-sm text-destructive">{errorMessage(error)}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetch()}
-            >
-              Retry
-            </Button>
-          </div>
-        )}
-        {!isLoading && !isError && (!sources || sources.length === 0) && (
-          <div className="p-8 text-center text-muted-foreground">
-            <Database className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="font-medium text-foreground">No sources yet</p>
-            <p className="mt-1 text-sm">
-              Add a Git repository or local folder above to start scanning
-              configs.
-            </p>
-          </div>
-        )}
-        {!isError && sources && sources.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {isLoading && (
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      )}
+      {isError && (
+        <Card className="p-4 space-y-3">
+          <p className="text-sm text-destructive">{errorMessage(error)}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+          >
+            Retry
+          </Button>
+        </Card>
+      )}
+      {!isLoading && !isError && (!sources || sources.length === 0) && (
+        <Card className="p-8 text-center text-muted-foreground">
+          <Database className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p className="font-medium text-foreground">No sources yet</p>
+          <p className="mt-1 text-sm">
+            Add a Git repository or local folder above to start scanning
+            configs.
+          </p>
+        </Card>
+      )}
+      {!isError && sources && sources.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sources.map((source) => {
               const kindCounts = getKindCounts(source.configs ?? []);
               const totalTokens = (source.configs ?? []).reduce(
@@ -357,10 +393,10 @@ export default function Sources() {
                     {hasUpdate && (
                       <Badge
                         variant="secondary"
-                        className="shrink-0 gap-1 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                        className="shrink-0 gap-1 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 hover:bg-amber-100 hover:text-amber-800 dark:hover:bg-amber-950 dark:hover:text-amber-200 cursor-default"
                       >
-                        <Bell className="w-3 h-3" />
-                        Update
+                        <Sparkles className="w-3 h-3" />
+                        NEW
                       </Badge>
                     )}
                   </div>
@@ -406,222 +442,253 @@ export default function Sources() {
                       : "Not scanned yet"}
                   </p>
 
-                  <div className="mt-auto pt-4 flex items-center gap-2">
+                  <div className="mt-auto pt-4 flex items-center justify-end gap-0.5">
                     {source.type === "git" && (
                       <Button
                         type="button"
-                        variant={hasUpdate ? "default" : "outline"}
-                        size="sm"
-                        className="flex-1"
-                        onClick={() =>
-                          pullUpdatesMutation.mutate(source.id)
-                        }
-                        disabled={pullUpdatesMutation.isPending}
+                        variant="ghost"
+                        size="icon"
+                        className={`h-7 w-7 ${
+                          hasUpdate ? "text-primary" : ""
+                        }`}
+                        onClick={() => handlePull(source.id)}
+                        disabled={pullingId === source.id}
                         title="Update & Scan"
                       >
-                        {pullUpdatesMutation.isPending ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
+                        {pullingId === source.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
-                          <Download className="w-3 h-3" />
+                          <RefreshCw className="w-3.5 h-3.5" />
                         )}
-                        Update
                       </Button>
                     )}
                     {source.type === "local" && (
                       <Button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => syncMutation.mutate(source.id)}
-                        disabled={syncMutation.isPending}
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleSync(source.id)}
+                        disabled={syncingId === source.id}
                         title="Scan"
                       >
-                        {syncMutation.isPending ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
+                        {syncingId === source.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
-                          <RefreshCw className="w-3 h-3" />
+                          <RefreshCw className="w-3.5 h-3.5" />
                         )}
-                        Scan
                       </Button>
                     )}
                     <Button
                       type="button"
-                      variant="outline"
-                      size="sm"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
                       onClick={() => setConfiguringId(source.id)}
                       title="Configure"
                       aria-label={`Configure ${source.name}`}
                     >
-                      <Settings2 className="w-3 h-3" />
+                      <Settings2 className="w-3.5 h-3.5" />
                     </Button>
                     <Button
                       type="button"
-                      variant="outline"
-                      size="sm"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                       onClick={() => removeMutation.mutate(source.id)}
                       disabled={removeMutation.isPending}
-                      className="text-destructive hover:bg-destructive/10"
                       title="Remove"
                       aria-label={`Remove ${source.name}`}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 </Card>
               );
             })}
           </div>
-        )}
-      </Card>
+      )}
 
       <Sheet
         open={!!configuringId}
         onOpenChange={(open) => !open && setConfiguringId(null)}
       >
-        <SheetContent className="w-full max-w-lg">
-          <SheetHeader>
-            <SheetTitle>Configure Source</SheetTitle>
-            <SheetDescription>{activeSource?.name ?? ""}</SheetDescription>
-          </SheetHeader>
-          {activeSource && (
-            <div className="mt-6 space-y-5">
-              <div className="space-y-4">
-                <div>
-                  <Label className="text-sm font-medium">Name</Label>
-                  <Input
-                    type="text"
-                    value={drawerName}
-                    onChange={(e) => setDrawerName(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-sm font-medium">Type</Label>
-                  <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-                    {activeSource.type === "git" ? (
-                      <>
-                        <GitBranch className="w-3.5 h-3.5" />
-                        Git
-                      </>
-                    ) : (
-                      <>
-                        <HardDrive className="w-3.5 h-3.5" />
-                        Local
-                      </>
+        <SheetContent className="w-[40%] min-w-[320px] p-0">
+          <ScrollArea className="h-full">
+            <div className="p-6">
+              <SheetHeader>
+                <SheetTitle>Configure Source</SheetTitle>
+                <SheetDescription>{activeSource?.name ?? ""}</SheetDescription>
+              </SheetHeader>
+              {activeSource && (
+                <div className="mt-6 space-y-5">
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium">Name</Label>
+                      <Input
+                        type="text"
+                        value={drawerName}
+                        onChange={(e) => setDrawerName(e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Type</Label>
+                      <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                        {activeSource.type === "git" ? (
+                          <>
+                            <GitBranch className="w-3.5 h-3.5" />
+                            Git
+                          </>
+                        ) : (
+                          <>
+                            <HardDrive className="w-3.5 h-3.5" />
+                            Local
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Source</Label>
+                      <p className="mt-1 text-sm text-muted-foreground break-all">
+                        {activeSource.type === "git"
+                          ? activeSource.url
+                          : activeSource.path}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4 space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium">
+                        Ignore Directories
+                      </Label>
+                      {activeSource && (
+                        <DirectoryTree
+                          sourceId={activeSource.id}
+                          ignoreDirs={drawerIgnoreDirs}
+                          onToggleIgnore={(path, ignored) => {
+                            setDrawerIgnoreDirs((prev) => {
+                              if (ignored) {
+                                return prev.includes(path)
+                                  ? prev
+                                  : [...prev, path];
+                              }
+                              return prev.filter((d) => d !== path);
+                            });
+                          }}
+                        />
+                      )}
+                    </div>
+
+                    <div>
+                      <Label className="text-xs text-muted-foreground">
+                        Or add manually
+                      </Label>
+                      <div className="flex flex-col gap-2 sm:flex-row mt-1.5">
+                        <Input
+                          type="text"
+                          placeholder="Directory path to ignore"
+                          value={ignoreInput}
+                          onChange={(e) => setIgnoreInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              if (!ignoreInput.trim()) return;
+                              setDrawerIgnoreDirs((prev) =>
+                                prev.includes(ignoreInput.trim())
+                                  ? prev
+                                  : [...prev, ignoreInput.trim()]
+                              );
+                              setIgnoreInput("");
+                            }
+                          }}
+                          aria-label="Directory path to ignore"
+                          className="flex-1 h-8 text-xs"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (!ignoreInput.trim()) return;
+                            setDrawerIgnoreDirs((prev) =>
+                              prev.includes(ignoreInput.trim())
+                                ? prev
+                                : [...prev, ignoreInput.trim()]
+                            );
+                            setIgnoreInput("");
+                          }}
+                        >
+                          <Plus className="w-3 h-3" />
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+
+                    {drawerIgnoreDirs.length > 0 && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">
+                          Ignored list
+                        </Label>
+                        <div className="space-y-1">
+                          {drawerIgnoreDirs.map((dir) => (
+                            <div
+                              key={dir}
+                              className="flex items-center justify-between py-1 px-2 rounded-md bg-muted/50 text-xs"
+                            >
+                              <span className="truncate font-mono">{dir}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={() =>
+                                  setDrawerIgnoreDirs((prev) =>
+                                    prev.filter((d) => d !== dir)
+                                  )
+                                }
+                                aria-label={`Stop ignoring ${dir}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium">Source</Label>
-                  <p className="mt-1 text-sm text-muted-foreground break-all">
-                    {activeSource.type === "git"
-                      ? activeSource.url
-                      : activeSource.path}
-                  </p>
-                </div>
-              </div>
 
-              <div className="border-t pt-4">
-                <Label className="text-sm font-medium">
-                  Ignore Directories
-                </Label>
-                <div className="mt-2 space-y-1">
-                  {drawerIgnoreDirs.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No ignored directories yet.
-                    </p>
-                  )}
-                  {drawerIgnoreDirs.map((dir) => (
-                    <div
-                      key={dir}
-                      className="flex items-center justify-between py-1.5 px-2 rounded-md bg-muted/50 text-sm"
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setConfiguringId(null)}
                     >
-                      <span className="truncate">{dir}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() =>
-                          setDrawerIgnoreDirs((prev) =>
-                            prev.filter((d) => d !== dir)
-                          )
-                        }
-                        aria-label={`Stop ignoring ${dir}`}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row mt-3">
-                  <Input
-                    type="text"
-                    placeholder="Directory name to ignore"
-                    value={ignoreInput}
-                    onChange={(e) => setIgnoreInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        if (!ignoreInput.trim()) return;
-                        setDrawerIgnoreDirs((prev) => [
-                          ...prev,
-                          ignoreInput.trim(),
-                        ]);
-                        setIgnoreInput("");
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() =>
+                        saveConfigMutation.mutate({
+                          id: activeSource.id,
+                          name: drawerName.trim(),
+                          dirs: drawerIgnoreDirs,
+                        })
                       }
-                    }}
-                    aria-label="Directory name to ignore"
-                    className="flex-1 h-8 text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (!ignoreInput.trim()) return;
-                      setDrawerIgnoreDirs((prev) => [
-                        ...prev,
-                        ignoreInput.trim(),
-                      ]);
-                      setIgnoreInput("");
-                    }}
-                  >
-                    <Plus className="w-3 h-3" />
-                    Add
-                  </Button>
+                      disabled={
+                        !drawerName.trim() || saveConfigMutation.isPending
+                      }
+                    >
+                      {saveConfigMutation.isPending && (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                      )}
+                      Save
+                    </Button>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setConfiguringId(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() =>
-                    saveConfigMutation.mutate({
-                      id: activeSource.id,
-                      name: drawerName.trim(),
-                      dirs: drawerIgnoreDirs,
-                    })
-                  }
-                  disabled={
-                    !drawerName.trim() || saveConfigMutation.isPending
-                  }
-                >
-                  {saveConfigMutation.isPending && (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                  )}
-                  Save
-                </Button>
-              </div>
+              )}
             </div>
-          )}
+          </ScrollArea>
         </SheetContent>
       </Sheet>
     </div>

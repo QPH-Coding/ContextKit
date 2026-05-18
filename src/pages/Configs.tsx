@@ -731,7 +731,7 @@ export default function Configs() {
 
       {/* Detail Sheet */}
       <Sheet open={!!selectedId} onOpenChange={(open) => !open && closeConfig()}>
-        <SheetContent className="w-full max-w-lg p-0">
+        <SheetContent className="w-[40%] min-w-[320px] p-0">
           <ScrollArea className="h-full">
             <div className="p-6 space-y-6">
               <SheetHeader className="flex flex-row items-center justify-between sm:flex-row sm:text-left">

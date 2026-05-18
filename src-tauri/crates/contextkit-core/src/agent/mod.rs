@@ -29,6 +29,8 @@ pub trait AgentTool: Send + Sync {
         source_path: &Path,
     ) -> Option<PathBuf>;
     fn mechanism(&self, kind: ConfigKind) -> AssignmentMechanism;
+    /// 返回 Agent 的默认配置根目录（用于检测和设置页展示）
+    fn default_home_dir(&self) -> Option<PathBuf>;
 }
 
 /// 分配操作管理器

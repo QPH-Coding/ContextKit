@@ -23,6 +23,7 @@ pub fn run() {
             commands::check_all_source_updates,
             commands::pull_source_updates,
             commands::pull_all_source_updates,
+            commands::get_source_directory_tree,
             commands::list_sources,
             commands::sync_source,
             commands::list_configs,
@@ -34,6 +35,8 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::list_agents,
+            commands::list_agent_settings,
+            commands::update_agent_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

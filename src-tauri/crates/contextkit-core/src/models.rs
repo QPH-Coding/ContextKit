@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -99,6 +100,7 @@ pub struct Stats {
 pub struct Settings {
     pub config_dir: PathBuf,
     pub default_sync_mode: SyncMode,
+    pub agent_dirs: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -108,6 +110,21 @@ pub struct AgentInfo {
     pub supported_kinds: Vec<ConfigKind>,
     pub supports_user_scope: bool,
     pub supports_project_scope: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentSetting {
+    pub id: String,
+    pub name: String,
+    pub detected_dir: Option<String>,
+    pub custom_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DirNode {
+    pub name: String,
+    pub relative_path: String,
+    pub has_children: bool,
 }
 
 #[cfg(test)]

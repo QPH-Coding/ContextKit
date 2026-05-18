@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::models::{ConfigKind, ConfigSummary};
+use crate::models::{ConfigKind, ConfigSummary, DirNode};
 use crate::token::count_tokens_in_file;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -43,6 +43,25 @@ fn relative_path<'a>(root: &Path, full: &'a Path) -> &'a Path {
     full.strip_prefix(root).unwrap_or(full)
 }
 
+fn is_ignored(path: &Path, root: &Path, ignore_dirs: &[String]) -> bool {
+    let rel = relative_path(root, path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+
+    for ignore in ignore_dirs {
+        // 相对路径前缀匹配（新语义）
+        if rel == *ignore || rel.starts_with(&format!("{}/", ignore)) {
+            return true;
+        }
+        // 目录名精确匹配（向后兼容）
+        if ignore == dir_name {
+            return true;
+        }
+    }
+    false
+}
+
 fn visit_dir(
     root: &Path,
     current: &Path,
@@ -79,7 +98,7 @@ fn visit_dir(
         let name_str = name.to_string_lossy();
 
         if path.is_dir() {
-            if ignore_dirs.iter().any(|d| d == name_str.as_ref()) {
+            if is_ignored(&path, root, ignore_dirs) {
                 continue;
             }
             if name_str == "rules" {
@@ -114,6 +133,65 @@ fn visit_dir(
     }
 
     Ok(())
+}
+
+/// 获取指定路径下的直接子目录列表（懒加载目录树用）
+pub fn get_directory_tree(root: &Path, relative_path: &str) -> Result<Vec<DirNode>> {
+    let target = if relative_path.is_empty() {
+        root.to_path_buf()
+    } else {
+        let mut path = root.to_path_buf();
+        for part in relative_path.split('/') {
+            if !part.is_empty() {
+                path.push(part);
+            }
+        }
+        path
+    };
+
+    eprintln!(
+        "[get_directory_tree] root={:?}, relative_path={:?}, target={:?}, is_dir={}",
+        root,
+        relative_path,
+        target,
+        target.is_dir()
+    );
+
+    if !target.is_dir() {
+        eprintln!("[get_directory_tree] target is not a dir, returning empty");
+        return Ok(Vec::new());
+    }
+
+    let mut nodes = Vec::new();
+    let entries = std::fs::read_dir(&target)?;
+    eprintln!("[get_directory_tree] read_dir succeeded");
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let rel = if relative_path.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", relative_path, name)
+        };
+        let has_children = std::fs::read_dir(entry.path())?
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false));
+        nodes.push(DirNode {
+            name,
+            relative_path: rel,
+            has_children,
+        });
+    }
+
+    nodes.sort_by(|a, b| a.name.cmp(&b.name));
+    eprintln!("[get_directory_tree] found {} nodes", nodes.len());
+    for node in &nodes {
+        eprintln!("  - {:?}", node);
+    }
+    Ok(nodes)
 }
 
 fn scan_rules_dir(

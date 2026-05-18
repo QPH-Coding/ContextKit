@@ -5,6 +5,7 @@ import { globalApi } from "@/lib/api";
 import { errorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -12,7 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FolderOpen, RefreshCw, Check } from "lucide-react";
+import { FolderOpen, RefreshCw, Check, X, Save } from "lucide-react";
+import AgentIcon from "@/components/AgentIcon";
+import type { AgentSetting } from "@/lib/types";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -28,9 +31,23 @@ export default function Settings() {
     retry: false,
   });
 
+  const {
+    data: agentSettings,
+    isLoading: isAgentsLoading,
+    isError: isAgentsError,
+    error: agentsError,
+    refetch: refetchAgents,
+  } = useQuery({
+    queryKey: ["agentSettings"],
+    queryFn: globalApi.getAgentSettings,
+    retry: false,
+  });
+
   const [selectedMode, setSelectedMode] = useState<
     "reference" | "copy" | null
   >(null);
+
+  const [agentDirInputs, setAgentDirInputs] = useState<Record<string, string>>({});
 
   const updateMutation = useMutation({
     mutationFn: (mode: "reference" | "copy") => globalApi.updateSettings(mode),
@@ -44,7 +61,47 @@ export default function Settings() {
     },
   });
 
+  const updateAgentDirMutation = useMutation({
+    mutationFn: (vars: { agentId: string; dir?: string }) =>
+      globalApi.updateAgentDir(vars.agentId, vars.dir),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agentSettings"] });
+      toast.success("Agent directory saved.");
+    },
+    onError: (err) => {
+      toast.error(errorMessage(err));
+    },
+  });
+
   const currentMode = selectedMode ?? settings?.default_sync_mode ?? "reference";
+
+  const getDisplayDir = (agent: AgentSetting) => {
+    return agent.custom_dir ?? agent.detected_dir ?? "";
+  };
+
+  const handleAgentDirChange = (agentId: string, value: string) => {
+    setAgentDirInputs((prev) => ({ ...prev, [agentId]: value }));
+  };
+
+  const handleSaveAgentDir = (agentId: string) => {
+    const value = agentDirInputs[agentId]?.trim();
+    updateAgentDirMutation.mutate({
+      agentId,
+      dir: value && value.length > 0 ? value : undefined,
+    });
+  };
+
+  const handleClearAgentDir = (agentId: string) => {
+    setAgentDirInputs((prev) => ({ ...prev, [agentId]: "" }));
+    updateAgentDirMutation.mutate({ agentId, dir: undefined });
+  };
+
+  const isAgentDirDirty = (agent: AgentSetting) => {
+    const input = agentDirInputs[agent.id];
+    if (input === undefined) return false;
+    const current = getDisplayDir(agent);
+    return input.trim() !== current;
+  };
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -118,6 +175,98 @@ export default function Settings() {
           </>
         )}
       </Card>
+
+      <div>
+        <h3 className="text-lg font-semibold mb-3">Agent Directories</h3>
+        <Card className="p-4">
+          {isAgentsLoading && (
+            <p className="text-sm text-muted-foreground">Loading agents...</p>
+          )}
+          {isAgentsError && (
+            <div className="space-y-3">
+              <p className="text-sm text-destructive">{errorMessage(agentsError)}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchAgents()}
+              >
+                Retry
+              </Button>
+            </div>
+          )}
+          {agentSettings && !isAgentsError && (
+            <div className="space-y-3">
+              {agentSettings.map((agent) => {
+                const displayDir = getDisplayDir(agent);
+                const inputValue =
+                  agentDirInputs[agent.id] !== undefined
+                    ? agentDirInputs[agent.id]
+                    : displayDir;
+                const dirty = isAgentDirDirty(agent);
+                const hasCustom = !!agent.custom_dir;
+
+                return (
+                  <div
+                    key={agent.id}
+                    className="py-2 border-b last:border-b-0"
+                  >
+                    <div className="flex items-center gap-2">
+                      <AgentIcon agentId={agent.id} size={20} />
+                      <span className="font-medium text-sm">{agent.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <Input
+                        type="text"
+                        placeholder={
+                          agent.detected_dir
+                            ? `Detected: ${agent.detected_dir}`
+                            : "Not detected"
+                        }
+                        value={inputValue}
+                        onChange={(e) =>
+                          handleAgentDirChange(agent.id, e.target.value)
+                        }
+                        className="h-8 text-sm"
+                      />
+                      {dirty && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => handleSaveAgentDir(agent.id)}
+                          disabled={updateAgentDirMutation.isPending}
+                          title="Save"
+                        >
+                          <Save className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {hasCustom && !dirty && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-muted-foreground"
+                          onClick={() => handleClearAgentDir(agent.id)}
+                          disabled={updateAgentDirMutation.isPending}
+                          title="Reset to detected"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                    {agent.custom_dir && agent.detected_dir && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Detected: {agent.detected_dir}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

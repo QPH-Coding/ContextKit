@@ -38,35 +38,50 @@ impl ConfigManager {
         self.base_dir.join("settings.toml")
     }
 
-    /// 从 settings.toml 加载默认同步模式
-    pub fn load_settings(&self) -> Result<Option<crate::models::SyncMode>> {
+    /// 从 settings.toml 加载配置
+    pub fn load_settings(&self) -> Result<Option<(crate::models::SyncMode, std::collections::HashMap<String, String>)>> {
         let path = self.settings_path();
         if !path.exists() {
             return Ok(None);
         }
         let content = std::fs::read_to_string(&path)?;
         let value: toml::Value = toml::from_str(&content).map_err(crate::error::ContextKitError::from)?;
-        if let Some(mode_str) = value.get("default_sync_mode").and_then(|v| v.as_str()) {
-            match mode_str {
-                "reference" => Ok(Some(crate::models::SyncMode::Reference)),
-                "copy" => Ok(Some(crate::models::SyncMode::Copy)),
-                _ => Ok(None),
-            }
-        } else {
-            Ok(None)
-        }
+
+        let mode = value.get("default_sync_mode").and_then(|v| v.as_str()).and_then(|s| match s {
+            "reference" => Some(crate::models::SyncMode::Reference),
+            "copy" => Some(crate::models::SyncMode::Copy),
+            _ => None,
+        });
+
+        let agent_dirs = value.get("agent_dirs")
+            .and_then(|v| v.as_table())
+            .map(|table| {
+                table.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(mode.map(|m| (m, agent_dirs)))
     }
 
-    /// 保存默认同步模式到 settings.toml
-    pub fn save_settings(&self, mode: crate::models::SyncMode) -> Result<()> {
+    /// 保存配置到 settings.toml
+    pub fn save_settings(&self, mode: crate::models::SyncMode, agent_dirs: &std::collections::HashMap<String, String>) -> Result<()> {
         let path = self.settings_path();
-        let content = format!(
-            "default_sync_mode = \"{}\"\n",
-            match mode {
-                crate::models::SyncMode::Reference => "reference",
-                crate::models::SyncMode::Copy => "copy",
+        let mode_str = match mode {
+            crate::models::SyncMode::Reference => "reference",
+            crate::models::SyncMode::Copy => "copy",
+        };
+
+        let mut content = format!("default_sync_mode = \"{}\"\n", mode_str);
+
+        if !agent_dirs.is_empty() {
+            content.push_str("\n[agent_dirs]\n");
+            for (k, v) in agent_dirs {
+                content.push_str(&format!("{} = \"{}\"\n", k, v.replace('\\', "\\\\").replace('"', "\\\"")));
             }
-        );
+        }
+
         std::fs::write(&path, content)?;
         Ok(())
     }

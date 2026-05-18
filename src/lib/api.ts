@@ -3,10 +3,12 @@ import type {
   Source,
   ConfigSummary,
   ConfigDetail,
+  DirNode,
   Assignment,
   Stats,
   Settings,
   AgentInfo,
+  AgentSetting,
 } from "./types";
 
 export async function invokeCommand<T>(
@@ -40,6 +42,11 @@ export const sourceApi = {
     invokeCommand<ConfigSummary[]>("pull_source_updates", { id }),
   pullAllSourceUpdates: () =>
     invokeCommand<[string, ConfigSummary[]][]>("pull_all_source_updates", {}),
+  getDirectoryTree: (id: string, relativePath?: string) =>
+    invokeCommand<DirNode[]>("get_source_directory_tree", {
+      id,
+      relativePath: relativePath ?? "",
+    }),
   listSources: () => invokeCommand<Source[]>("list_sources", {}),
   syncSource: (id: string, force?: boolean) =>
     invokeCommand<ConfigSummary[]>("sync_source", { id, force }),
@@ -80,4 +87,7 @@ export const globalApi = {
   updateSettings: (mode: "reference" | "copy") =>
     invokeCommand<void>("update_settings", { mode }),
   listAgents: () => invokeCommand<AgentInfo[]>("list_agents", {}),
+  getAgentSettings: () => invokeCommand<AgentSetting[]>("list_agent_settings", {}),
+  updateAgentDir: (agentId: string, dir?: string) =>
+    invokeCommand<void>("update_agent_dir", { agentId, dir }),
 };

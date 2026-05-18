@@ -3,8 +3,8 @@ use crate::agent::{AssignmentManager, AssignmentMechanism};
 use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::models::{
-    AgentInfo, Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Settings, Source,
-    SourceType, Stats, SyncMode,
+    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, PathScope, Settings,
+    Source, SourceType, Stats, SyncMode,
 };
 use crate::source::SourceManager;
 use std::collections::HashMap;
@@ -21,13 +21,14 @@ pub struct App {
 impl App {
     pub fn new() -> Result<Self> {
         let source_manager = SourceManager::new()?;
-        let default_sync_mode = source_manager
+        let (default_sync_mode, agent_dirs) = source_manager
             .config()
             .load_settings()?
-            .unwrap_or(SyncMode::Reference);
+            .unwrap_or((SyncMode::Reference, std::collections::HashMap::new()));
         let settings = Settings {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
+            agent_dirs,
         };
         Ok(Self {
             source_manager,
@@ -40,13 +41,14 @@ impl App {
     pub fn with_config_dir<P: AsRef<Path>>(dir: P) -> Result<Self> {
         let config = ConfigManager::with_dir(dir);
         let source_manager = SourceManager::with_config(config)?;
-        let default_sync_mode = source_manager
+        let (default_sync_mode, agent_dirs) = source_manager
             .config()
             .load_settings()?
-            .unwrap_or(SyncMode::Reference);
+            .unwrap_or((SyncMode::Reference, std::collections::HashMap::new()));
         let settings = Settings {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
+            agent_dirs,
         };
         Ok(Self {
             source_manager,
@@ -136,6 +138,16 @@ impl App {
             }
         }
         Ok(results)
+    }
+
+    pub fn get_source_directory_tree(&self, id: &str, relative_path: &str) -> Result<Vec<DirNode>> {
+        let source = self
+            .source_manager
+            .list_sources()
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| ContextKitError::SourceNotFound { id: id.into() })?;
+        crate::scanner::get_directory_tree(&source.local_path, relative_path)
     }
 
     pub fn list_sources(&self) -> Vec<Source> {
@@ -438,7 +450,45 @@ impl App {
 
     pub fn update_settings(&mut self, mode: SyncMode) -> Result<()> {
         self.settings.default_sync_mode = mode;
-        self.source_manager.config().save_settings(mode)
+        self.source_manager.config().save_settings(mode, &self.settings.agent_dirs)
+    }
+
+    pub fn list_agent_settings(&self) -> Vec<AgentSetting> {
+        self.agent_registry
+            .list()
+            .iter()
+            .map(|a| {
+                let id = a.id().to_string();
+                let default_dir = a.default_home_dir();
+                let detected_dir = default_dir.and_then(|d| {
+                    if d.exists() {
+                        Some(d.to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                });
+                let custom_dir = self.settings.agent_dirs.get(&id).cloned();
+                AgentSetting {
+                    id: id.clone(),
+                    name: a.name().to_string(),
+                    detected_dir,
+                    custom_dir,
+                }
+            })
+            .collect()
+    }
+
+    pub fn update_agent_dir(&mut self, agent_id: &str, dir: Option<String>) -> Result<()> {
+        if dir.as_ref().map(|d| d.is_empty()).unwrap_or(false) {
+            self.settings.agent_dirs.remove(agent_id);
+        } else if let Some(d) = dir {
+            self.settings.agent_dirs.insert(agent_id.to_string(), d);
+        } else {
+            self.settings.agent_dirs.remove(agent_id);
+        }
+        self.source_manager
+            .config()
+            .save_settings(self.settings.default_sync_mode, &self.settings.agent_dirs)
     }
 
     // === 内部辅助 ===

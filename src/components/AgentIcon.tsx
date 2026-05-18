@@ -5,12 +5,15 @@ interface AgentIconProps {
 }
 
 const agentIconMap: Record<string, string> = {
-  claude_code: "/claude.ico",
-  claude_desktop: "/claude.ico",
-  codex: "/codex.ico",
-  kimi: "/kimi.ico",
-  cursor: "/opencode.ico",
+  claude_code: "/claude.svg",
+  claude_desktop: "/claude.svg",
+  codex: "/codex.svg",
+  kimi: "/kimi.svg",
+  cursor: "/cursor.svg",
   codebuddy: "/codebuddy.svg",
+  cline: "/cline.svg",
+  copilot: "/copilot.svg",
+  gemini: "/gemini.svg",
 };
 
 const agentMeta: Record<string, { label: string; bg: string }> = {

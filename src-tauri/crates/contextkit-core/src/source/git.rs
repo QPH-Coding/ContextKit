@@ -38,19 +38,56 @@ pub fn pull_repo(dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 检查远程是否有更新（不修改本地）
+/// 检查远程是否有更新（不修改本地工作区，只更新远程跟踪引用）
 pub fn has_updates(dest: &Path) -> Result<bool> {
-    // fetch 远程信息
-    let fetch_output = Command::new("git")
-        .args(["-C", &dest.to_string_lossy(), "fetch", "--dry-run"])
+    // 1. 先 fetch 远程信息（更新 origin/* 跟踪分支，不修改本地 HEAD）
+    let fetch = Command::new("git")
+        .args(["-C", &dest.to_string_lossy(), "fetch", "--quiet"])
         .output()
         .map_err(|e| ContextKitError::GitError {
             message: format!("Failed to execute git fetch: {e}"),
         })?;
 
-    // git fetch --dry-run 如果有更新会输出到 stderr
-    let stderr = String::from_utf8_lossy(&fetch_output.stderr);
-    Ok(stderr.contains("->"))
+    if !fetch.status.success() {
+        return Ok(false);
+    }
+
+    // 2. 获取当前本地分支名
+    let branch_output = Command::new("git")
+        .args(["-C", &dest.to_string_lossy(), "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .map_err(|e| ContextKitError::GitError {
+            message: format!("Failed to get branch: {e}"),
+        })?;
+
+    let branch = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
+    if branch.is_empty() || branch == "HEAD" {
+        return Ok(false);
+    }
+
+    // 3. 比较本地分支和远程跟踪分支的 commit 数量差异
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &dest.to_string_lossy(),
+            "rev-list",
+            &format!("HEAD..origin/{}", branch),
+            "--count",
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let count = String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .parse::<i32>()
+                .unwrap_or(0);
+            Ok(count > 0)
+        }
+        _ => Ok(false),
+    }
 }
 
 #[cfg(test)]

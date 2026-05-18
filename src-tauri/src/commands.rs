@@ -1,7 +1,7 @@
 use contextkit_core::app::App;
 use contextkit_core::models::{
-    AgentInfo, Assignment, ConfigDetail, ConfigKind, ConfigSummary, PathScope, Settings, Source,
-    Stats, SyncMode,
+    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, PathScope, Settings,
+    Source, Stats, SyncMode,
 };
 use std::sync::Mutex;
 use tauri::State;
@@ -76,6 +76,17 @@ pub fn pull_all_source_updates(
 ) -> Result<Vec<(String, Vec<ConfigSummary>)>, String> {
     let mut app = state.app.lock().map_err(|e| e.to_string())?;
     app.pull_all_source_updates().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_source_directory_tree(
+    state: State<AppState>,
+    id: String,
+    relative_path: String,
+) -> Result<Vec<DirNode>, String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    app.get_source_directory_tree(&id, &relative_path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -174,4 +185,20 @@ pub fn update_settings(state: State<'_, AppState>, mode: SyncMode) -> Result<(),
 pub fn list_agents(state: State<AppState>) -> Result<Vec<AgentInfo>, String> {
     let app = state.app.lock().map_err(|e| e.to_string())?;
     Ok(app.list_agents())
+}
+
+#[tauri::command]
+pub fn list_agent_settings(state: State<AppState>) -> Result<Vec<AgentSetting>, String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    Ok(app.list_agent_settings())
+}
+
+#[tauri::command]
+pub fn update_agent_dir(
+    state: State<'_, AppState>,
+    agent_id: String,
+    dir: Option<String>,
+) -> Result<(), String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.update_agent_dir(&agent_id, dir).map_err(|e| e.to_string())
 }

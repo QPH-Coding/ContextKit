@@ -90,6 +90,10 @@ impl AgentTool for ClaudeCode {
     fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
         AssignmentMechanism::Symlink
     }
+
+    fn default_home_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".claude"))
+    }
 }
 
 struct Codex;
@@ -130,6 +134,10 @@ impl AgentTool for Codex {
 
     fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
         AssignmentMechanism::Symlink
+    }
+
+    fn default_home_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".codex"))
     }
 }
 
@@ -184,6 +192,10 @@ impl AgentTool for Cursor {
             _ => AssignmentMechanism::Symlink,
         }
     }
+
+    fn default_home_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".cursor"))
+    }
 }
 
 struct Kimi;
@@ -227,6 +239,10 @@ impl AgentTool for Kimi {
     fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
         AssignmentMechanism::Symlink
     }
+
+    fn default_home_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".kimi"))
+    }
 }
 
 struct CodeBuddy;
@@ -266,6 +282,10 @@ impl AgentTool for CodeBuddy {
 
     fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
         AssignmentMechanism::Symlink
+    }
+
+    fn default_home_dir(&self) -> Option<PathBuf> {
+        None
     }
 }
 
@@ -322,6 +342,21 @@ impl AgentTool for ClaudeDesktop {
 
     fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
         AssignmentMechanism::JsonInject
+    }
+
+    fn default_home_dir(&self) -> Option<PathBuf> {
+        #[cfg(target_os = "macos")]
+        {
+            dirs::home_dir().map(|h| h.join("Library/Application Support/Claude"))
+        }
+        #[cfg(target_os = "windows")]
+        {
+            dirs::data_dir().map(|d| d.join("Claude"))
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            None
+        }
     }
 }
 

@@ -59,8 +59,21 @@ export interface AgentInfo {
   supports_project_scope: boolean;
 }
 
+export interface AgentSetting {
+  id: string;
+  name: string;
+  detected_dir?: string;
+  custom_dir?: string;
+}
+
 export interface ConfigsGroup {
   source_id: string;
   source_name: string;
   configs: ConfigSummary[];
+}
+
+export interface DirNode {
+  name: string;
+  relative_path: string;
+  has_children: boolean;
 }
