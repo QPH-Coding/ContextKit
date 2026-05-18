@@ -34,8 +34,12 @@ export const sourceApi = {
     invokeCommand<void>("update_source_ignore_dirs", { id, ignoreDirs }),
   checkSourceUpdates: (id: string) =>
     invokeCommand<boolean>("check_source_updates", { id }),
+  checkAllSourceUpdates: () =>
+    invokeCommand<[string, boolean][]>("check_all_source_updates", {}),
   pullSourceUpdates: (id: string) =>
     invokeCommand<ConfigSummary[]>("pull_source_updates", { id }),
+  pullAllSourceUpdates: () =>
+    invokeCommand<[string, ConfigSummary[]][]>("pull_all_source_updates", {}),
   listSources: () => invokeCommand<Source[]>("list_sources", {}),
   syncSource: (id: string, force?: boolean) =>
     invokeCommand<ConfigSummary[]>("sync_source", { id, force }),

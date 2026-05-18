@@ -96,6 +96,17 @@ impl App {
         crate::source::git::has_updates(&source.local_path)
     }
 
+    pub fn check_all_source_updates(&self) -> Result<Vec<(String, bool)>> {
+        let mut results = Vec::new();
+        for source in self.source_manager.list_sources() {
+            if let SourceType::Git { .. } = &source.source_type {
+                let has = crate::source::git::has_updates(&source.local_path).unwrap_or(false);
+                results.push((source.id.clone(), has));
+            }
+        }
+        Ok(results)
+    }
+
     pub fn pull_source_updates(&mut self, id: &str) -> Result<Vec<ConfigSummary>> {
         let source = self
             .source_manager
@@ -107,6 +118,24 @@ impl App {
             return Err(ContextKitError::InvalidPath("Not a git source".into()));
         }
         self.source_manager.sync_source(id, true)
+    }
+
+    pub fn pull_all_source_updates(&mut self) -> Result<Vec<(String, Vec<ConfigSummary>)>> {
+        let ids: Vec<String> = self
+            .source_manager
+            .list_sources()
+            .iter()
+            .filter(|s| matches!(s.source_type, SourceType::Git { .. }))
+            .map(|s| s.id.clone())
+            .collect();
+
+        let mut results = Vec::new();
+        for id in ids {
+            if let Ok(configs) = self.source_manager.sync_source(&id, true) {
+                results.push((id, configs));
+            }
+        }
+        Ok(results)
     }
 
     pub fn list_sources(&self) -> Vec<Source> {

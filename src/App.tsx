@@ -1,4 +1,5 @@
 import { Routes, Route } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Sources from "@/pages/Sources";
@@ -7,14 +8,17 @@ import Settings from "@/pages/Settings";
 
 function App() {
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/sources" element={<Sources />} />
-        <Route path="/configs" element={<Configs />} />
-        <Route path="/settings" element={<Settings />} />
-      </Route>
-    </Routes>
+    <>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/sources" element={<Sources />} />
+          <Route path="/configs" element={<Configs />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
+      </Routes>
+      <Toaster position="top-right" richColors />
+    </>
   );
 }
 

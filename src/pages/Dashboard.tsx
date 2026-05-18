@@ -1,15 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { globalApi, sourceApi, configApi } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
 import { errorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  AlertCircle,
   ArrowRight,
   Database,
   FileText,
@@ -108,36 +107,6 @@ function GlobalSearch() {
   );
 }
 
-function ErrorPanel({
-  title,
-  error,
-  onRetry,
-}: {
-  title: string;
-  error: unknown;
-  onRetry: () => void;
-}) {
-  return (
-    <Alert variant="destructive">
-      <AlertCircle className="h-4 w-4" />
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>
-        <p className="mt-1 break-words text-xs opacity-90">
-          {errorMessage(error)}
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRetry}
-          className="mt-3 border-destructive/30 hover:bg-destructive/10"
-        >
-          Retry
-        </Button>
-      </AlertDescription>
-    </Alert>
-  );
-}
-
 const kindOrder = ["skill", "rule", "agent", "mcp"] as const;
 
 function kindCountsText(configs: { kind: string }[]) {
@@ -176,6 +145,28 @@ export default function Dashboard() {
     retry: false,
   });
 
+  useEffect(() => {
+    if (isStatsError && statsError) {
+      toast.error(errorMessage(statsError), {
+        id: "stats-error",
+        action: { label: "Retry", onClick: () => refetchStats() },
+      });
+    } else {
+      toast.dismiss("stats-error");
+    }
+  }, [isStatsError, statsError]);
+
+  useEffect(() => {
+    if (isSourcesError && sourcesError) {
+      toast.error(errorMessage(sourcesError), {
+        id: "sources-error",
+        action: { label: "Retry", onClick: () => refetchSources() },
+      });
+    } else {
+      toast.dismiss("sources-error");
+    }
+  }, [isSourcesError, sourcesError]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -183,14 +174,6 @@ export default function Dashboard() {
       </div>
 
       <GlobalSearch />
-
-      {isStatsError && (
-        <ErrorPanel
-          title="Could not load dashboard stats"
-          error={statsError}
-          onRetry={() => refetchStats()}
-        />
-      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
@@ -224,14 +207,6 @@ export default function Dashboard() {
           icon={Layers}
         />
       </div>
-
-      {isSourcesError && (
-        <ErrorPanel
-          title="Could not load sources"
-          error={sourcesError}
-          onRetry={() => refetchSources()}
-        />
-      )}
 
       {sources && sources.length > 0 && (
         <Card className="p-4">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { configApi, assignmentApi, globalApi } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
 import { errorMessage } from "@/lib/utils";
@@ -12,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
@@ -26,7 +26,6 @@ import {
   SheetHeader,
 } from "@/components/ui/sheet";
 import {
-  AlertCircle,
   FileText,
   Filter,
   Search,
@@ -37,7 +36,6 @@ import {
   Check,
   Plus,
   Zap,
-  AlertTriangle,
   ArrowLeft,
 } from "lucide-react";
 
@@ -87,7 +85,6 @@ export default function Configs() {
   const [search, setSearch] = useState("");
   const selectedId = searchParams.get("config");
   const [showAgentSelector, setShowAgentSelector] = useState(false);
-  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [quickAgents, setQuickAgents] = useLocalStorageState<string[]>(
     "ck-quick-agents",
     []
@@ -141,34 +138,26 @@ export default function Configs() {
   const assignMutation = useMutation({
     mutationFn: (vars: { configId: string; agentId: string }) =>
       assignmentApi.assignConfig(vars.configId, vars.agentId, "user", undefined),
-    onMutate: () => {
-      setAssignmentError(null);
-    },
     onSuccess: () => {
-      setAssignmentError(null);
       queryClient.invalidateQueries({ queryKey: ["assignments"] });
       queryClient.invalidateQueries({ queryKey: ["config"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     },
     onError: (err) => {
-      setAssignmentError(errorMessage(err));
+      toast.error(errorMessage(err));
     },
   });
 
   const unassignMutation = useMutation({
     mutationFn: (vars: { configId: string; agentId: string }) =>
       assignmentApi.unassignConfig(vars.configId, vars.agentId),
-    onMutate: () => {
-      setAssignmentError(null);
-    },
     onSuccess: () => {
-      setAssignmentError(null);
       queryClient.invalidateQueries({ queryKey: ["assignments"] });
       queryClient.invalidateQueries({ queryKey: ["config"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     },
     onError: (err) => {
-      setAssignmentError(errorMessage(err));
+      toast.error(errorMessage(err));
     },
   });
 
@@ -336,6 +325,41 @@ export default function Configs() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedId]);
 
+  useEffect(() => {
+    if (isError && error) {
+      toast.error(errorMessage(error), {
+        id: "configs-error",
+        action: { label: "Retry", onClick: () => refetch() },
+      });
+    } else {
+      toast.dismiss("configs-error");
+    }
+  }, [isError, error]);
+
+  useEffect(() => {
+    if (isDetailError && detailError) {
+      toast.error(errorMessage(detailError), {
+        id: "detail-error",
+      });
+    } else {
+      toast.dismiss("detail-error");
+    }
+  }, [isDetailError, detailError]);
+
+  useEffect(() => {
+    if (configs && configs.some((c) => c.token_count === 0)) {
+      toast.warning(
+        "Some configs show 0 tokens. Go to Sources and sync to recalculate.",
+        {
+          id: "token-warning",
+          duration: 10000,
+        }
+      );
+    } else {
+      toast.dismiss("token-warning");
+    }
+  }, [configs]);
+
   return (
     <div className="max-w-5xl space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -445,24 +469,6 @@ export default function Configs() {
         </div>
       </div>
 
-      {assignmentError && (
-        <Alert variant="destructive">
-          <AlertDescription className="flex items-start justify-between gap-3">
-            <p>{assignmentError}</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="shrink-0 h-6 w-6"
-              onClick={() => setAssignmentError(null)}
-              aria-label="Dismiss assignment error"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
       {selectedConfigs.size > 0 && (
         <Card className="p-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
@@ -514,23 +520,6 @@ export default function Configs() {
         </Card>
       )}
 
-      {configs && configs.some((c) => c.token_count === 0) && (
-        <Alert className="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <AlertDescription>
-            <p className="font-medium">Token counts not calculated</p>
-            <p className="text-xs opacity-80">
-              Some configs show 0 tokens because they were scanned before token
-              counting was enabled. Go to{" "}
-              <Link to="/sources" className="underline">
-                Sources
-              </Link>{" "}
-              and click <strong>Sync</strong> on each source to recalculate.
-            </p>
-          </AlertDescription>
-        </Alert>
-      )}
-
       {grouped.length > 0 && (
         <div className="flex items-center gap-2">
           <Button
@@ -557,23 +546,16 @@ export default function Configs() {
           <p className="p-4 text-sm text-muted-foreground">Loading...</p>
         )}
         {isError && (
-          <Alert variant="destructive">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <AlertTitle>Could not load configs</AlertTitle>
-            <AlertDescription>
-              <p className="mt-1 break-words text-xs opacity-90">
-                {errorMessage(error)}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetch()}
-                className="mt-3 border-destructive/30 hover:bg-destructive/10"
-              >
-                Retry
-              </Button>
-            </AlertDescription>
-          </Alert>
+          <div className="space-y-3">
+            <p className="text-sm text-destructive">{errorMessage(error)}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+            >
+              Retry
+            </Button>
+          </div>
         )}
         {!isLoading && !isError && filteredConfigs.length === 0 && (
           <Card className="p-8 text-center text-muted-foreground">
@@ -770,14 +752,9 @@ export default function Configs() {
                 <p className="text-sm text-muted-foreground">Loading...</p>
               )}
               {isDetailError && (
-                <Alert variant="destructive">
-                  <AlertTitle>Failed to load config</AlertTitle>
-                  <AlertDescription>
-                    <p className="mt-1 text-xs">
-                      {errorMessage(detailError)}
-                    </p>
-                  </AlertDescription>
-                </Alert>
+                <div className="space-y-3">
+                  <p className="text-sm text-destructive">{errorMessage(detailError)}</p>
+                </div>
               )}
               {detail && !isDetailError && (
                 <DetailContent

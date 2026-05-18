@@ -56,12 +56,26 @@ pub fn check_source_updates(state: State<AppState>, id: String) -> Result<bool, 
 }
 
 #[tauri::command]
+pub fn check_all_source_updates(state: State<AppState>) -> Result<Vec<(String, bool)>, String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    app.check_all_source_updates().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn pull_source_updates(
     state: State<AppState>,
     id: String,
 ) -> Result<Vec<ConfigSummary>, String> {
     let mut app = state.app.lock().map_err(|e| e.to_string())?;
     app.pull_source_updates(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn pull_all_source_updates(
+    state: State<'_, AppState>,
+) -> Result<Vec<(String, Vec<ConfigSummary>)>, String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.pull_all_source_updates().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

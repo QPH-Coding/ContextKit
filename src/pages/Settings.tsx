@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { globalApi } from "@/lib/api";
 import { errorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
@@ -12,12 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertCircle, FolderOpen, RefreshCw, Check, X } from "lucide-react";
-
-type Notice = {
-  tone: "success" | "error";
-  message: string;
-};
+import { FolderOpen, RefreshCw, Check } from "lucide-react";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -36,17 +31,16 @@ export default function Settings() {
   const [selectedMode, setSelectedMode] = useState<
     "reference" | "copy" | null
   >(null);
-  const [notice, setNotice] = useState<Notice | null>(null);
 
   const updateMutation = useMutation({
     mutationFn: (mode: "reference" | "copy") => globalApi.updateSettings(mode),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setSelectedMode(null);
-      setNotice({ tone: "success", message: "Settings saved." });
+      toast.success("Settings saved.");
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: errorMessage(err) });
+      toast.error(errorMessage(err));
     },
   });
 
@@ -56,54 +50,21 @@ export default function Settings() {
     <div className="space-y-6 max-w-2xl">
       <h2 className="text-2xl font-bold">Settings</h2>
 
-      {notice && (
-        <Alert
-          variant={notice.tone === "error" ? "destructive" : "default"}
-          className={
-            notice.tone === "success"
-              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
-              : undefined
-          }
-          role="status"
-        >
-          <AlertDescription className="flex items-start justify-between gap-3">
-            <p>{notice.message}</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="shrink-0 h-6 w-6"
-              onClick={() => setNotice(null)}
-              aria-label="Dismiss notification"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
       <Card className="p-4 space-y-4">
         {isLoading && (
           <p className="text-sm text-muted-foreground">Loading...</p>
         )}
         {isError && (
-          <Alert variant="destructive">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <AlertTitle>Could not load settings</AlertTitle>
-            <AlertDescription>
-              <p className="mt-1 break-words text-xs opacity-90">
-                {errorMessage(error)}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetch()}
-                className="mt-3 border-destructive/30 hover:bg-destructive/10"
-              >
-                Retry
-              </Button>
-            </AlertDescription>
-          </Alert>
+          <div className="space-y-3">
+            <p className="text-sm text-destructive">{errorMessage(error)}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+            >
+              Retry
+            </Button>
+          </div>
         )}
         {settings && !isError && (
           <>

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { sourceApi } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
 import { errorMessage } from "@/lib/utils";
@@ -7,39 +8,39 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
-  AlertCircle,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import {
   Plus,
   Trash2,
   RefreshCw,
   Database,
-  Pencil,
-  Check,
   X,
   FolderOpen,
   GitBranch,
-  ArrowDownCircle,
   Settings2,
   Loader2,
+  Download,
+  Bell,
+  HardDrive,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-
-type Notice = {
-  tone: "success" | "error";
-  message: string;
-};
 
 export default function Sources() {
   const queryClient = useQueryClient();
   const [urlOrPath, setUrlOrPath] = useState("");
   const [name, setName] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
   const [configuringId, setConfiguringId] = useState<string | null>(null);
   const [ignoreInput, setIgnoreInput] = useState("");
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<Record<string, boolean>>({});
+  const [drawerName, setDrawerName] = useState("");
+  const [drawerIgnoreDirs, setDrawerIgnoreDirs] = useState<string[]>([]);
 
   const {
     data: sources,
@@ -55,6 +56,14 @@ export default function Sources() {
 
   const activeSource = sources?.find((s) => s.id === configuringId) ?? null;
 
+  useEffect(() => {
+    if (activeSource) {
+      setDrawerName(activeSource.name);
+      setDrawerIgnoreDirs(activeSource.ignore_dirs ?? []);
+      setIgnoreInput("");
+    }
+  }, [activeSource?.id]);
+
   const addMutation = useMutation({
     mutationFn: () => sourceApi.addSource(urlOrPath, name || undefined),
     onSuccess: () => {
@@ -62,10 +71,10 @@ export default function Sources() {
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       setUrlOrPath("");
       setName("");
-      setNotice({ tone: "success", message: "Source added." });
+      toast.success("Source added.");
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: errorMessage(err) });
+      toast.error(errorMessage(err));
     },
   });
 
@@ -74,10 +83,10 @@ export default function Sources() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-      setNotice({ tone: "success", message: "Source removed." });
+      toast.success("Source removed.");
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: errorMessage(err) });
+      toast.error(errorMessage(err));
     },
   });
 
@@ -87,82 +96,96 @@ export default function Sources() {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       queryClient.invalidateQueries({ queryKey: ["configs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-      setNotice({ tone: "success", message: "Source synced." });
+      toast.success("Source synced.");
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: `Sync failed: ${errorMessage(err)}` });
+      toast.error(`Sync failed: ${errorMessage(err)}`);
     },
   });
 
-  const updateNameMutation = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      sourceApi.updateSourceName(id, name),
+  const saveConfigMutation = useMutation({
+    mutationFn: async ({
+      id,
+      name,
+      dirs,
+    }: {
+      id: string;
+      name: string;
+      dirs: string[];
+    }) => {
+      await sourceApi.updateSourceName(id, name);
+      await sourceApi.updateSourceIgnoreDirs(id, dirs);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       queryClient.invalidateQueries({ queryKey: ["configs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-      setEditingId(null);
-      setNotice({ tone: "success", message: "Source name updated." });
+      setConfiguringId(null);
+      toast.success("Source configuration saved.");
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: errorMessage(err) });
+      toast.error(errorMessage(err));
     },
   });
 
-  const checkUpdatesMutation = useMutation({
-    mutationFn: (id: string) => sourceApi.checkSourceUpdates(id),
-    onSuccess: (hasUpdates) => {
-      setNotice({
-        tone: "success",
-        message: hasUpdates ? "New version available." : "Already up to date.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["sources"] });
+  const checkAllUpdatesMutation = useMutation({
+    mutationFn: () => sourceApi.checkAllSourceUpdates(),
+    onSuccess: (results) => {
+      const status: Record<string, boolean> = {};
+      let hasAny = false;
+      for (const [id, has] of results) {
+        status[id] = has;
+        if (has) hasAny = true;
+      }
+      setUpdateStatus(status);
+      if (hasAny) {
+        toast.success("Updates available for some sources.");
+      } else {
+        toast.success("All sources are up to date.");
+      }
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: errorMessage(err) });
+      toast.error(errorMessage(err));
     },
   });
 
   const pullUpdatesMutation = useMutation({
     mutationFn: (id: string) => sourceApi.pullSourceUpdates(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      setUpdateStatus((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       queryClient.invalidateQueries({ queryKey: ["configs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-      setNotice({ tone: "success", message: "Source updated." });
+      toast.success("Source updated.");
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: errorMessage(err) });
+      toast.error(errorMessage(err));
     },
   });
 
-  const updateIgnoreDirsMutation = useMutation({
-    mutationFn: ({ id, dirs }: { id: string; dirs: string[] }) =>
-      sourceApi.updateSourceIgnoreDirs(id, dirs),
-    onSuccess: () => {
+  const pullAllUpdatesMutation = useMutation({
+    mutationFn: () => sourceApi.pullAllSourceUpdates(),
+    onSuccess: (results) => {
+      setUpdateStatus((prev) => {
+        const next = { ...prev };
+        for (const [id] of results) {
+          delete next[id];
+        }
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ["sources"] });
-      setNotice({ tone: "success", message: "Ignore directories updated." });
+      queryClient.invalidateQueries({ queryKey: ["configs"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      toast.success(`Updated ${results.length} source(s).`);
     },
     onError: (err) => {
-      setNotice({ tone: "error", message: errorMessage(err) });
+      toast.error(errorMessage(err));
     },
   });
-
-  const startEditing = (source: { id: string; name: string }) => {
-    setEditingId(source.id);
-    setEditingName(source.name);
-  };
-
-  const cancelEditing = () => {
-    setEditingId(null);
-    setEditingName("");
-  };
-
-  const saveEditing = (id: string) => {
-    if (editingName.trim()) {
-      updateNameMutation.mutate({ id, name: editingName.trim() });
-    }
-  };
 
   const openFilePicker = async () => {
     const selected = await open({
@@ -184,25 +207,54 @@ export default function Sources() {
     return counts;
   };
 
-  const removeIgnoreDir = (sourceId: string, dir: string) => {
-    const source = sources?.find((s) => s.id === sourceId);
-    if (!source) return;
-    const next = (source.ignore_dirs ?? []).filter((d) => d !== dir);
-    updateIgnoreDirsMutation.mutate({ id: sourceId, dirs: next });
+  const simplifyUrl = (url?: string) => {
+    if (!url) return "";
+    return url
+      .replace(/^https:\/\//, "")
+      .replace(/^http:\/\//, "")
+      .replace(/^git@/, "")
+      .replace(/\.git$/, "");
   };
 
-  const addIgnoreDir = (sourceId: string) => {
-    if (!ignoreInput.trim()) return;
-    const source = sources?.find((s) => s.id === sourceId);
-    if (!source) return;
-    const next = [...(source.ignore_dirs ?? []), ignoreInput.trim()];
-    updateIgnoreDirsMutation.mutate({ id: sourceId, dirs: next });
-    setIgnoreInput("");
-  };
+  const hasAnyUpdates = Object.values(updateStatus).some(Boolean);
+  const updateCount = Object.values(updateStatus).filter(Boolean).length;
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <h2 className="text-2xl font-bold">Sources</h2>
+    <div className="max-w-6xl space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl font-bold">Sources</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => checkAllUpdatesMutation.mutate()}
+            disabled={checkAllUpdatesMutation.isPending || !sources?.length}
+          >
+            {checkAllUpdatesMutation.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <GitBranch className="w-3.5 h-3.5" />
+            )}
+            Check Updates
+          </Button>
+          {hasAnyUpdates && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => pullAllUpdatesMutation.mutate()}
+              disabled={pullAllUpdatesMutation.isPending}
+            >
+              {pullAllUpdatesMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              Update All ({updateCount})
+            </Button>
+          )}
+        </div>
+      </div>
 
       <Card className="p-4 space-y-3">
         <h3 className="font-semibold">Add Source</h3>
@@ -254,54 +306,20 @@ export default function Sources() {
         )}
       </Card>
 
-      {notice && (
-        <Alert
-          variant={notice.tone === "error" ? "destructive" : "default"}
-          className={
-            notice.tone === "success"
-              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
-              : undefined
-          }
-          role="status"
-        >
-          <AlertDescription className="flex items-start justify-between gap-3">
-            <p>{notice.message}</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="shrink-0 h-6 w-6"
-              onClick={() => setNotice(null)}
-              aria-label="Dismiss notification"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <Card>
+      <Card className="p-4">
         {isLoading && (
-          <p className="p-4 text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">Loading...</p>
         )}
         {isError && (
-          <div className="p-4">
-            <Alert variant="destructive">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <AlertDescription>
-                <p className="mt-1 break-words text-xs opacity-90">
-                  {errorMessage(error)}
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => refetch()}
-                  className="mt-3 border-destructive/30 hover:bg-destructive/10"
-                >
-                  Retry
-                </Button>
-              </AlertDescription>
-            </Alert>
+          <div className="space-y-3">
+            <p className="text-sm text-destructive">{errorMessage(error)}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+            >
+              Retry
+            </Button>
           </div>
         )}
         {!isLoading && !isError && (!sources || sources.length === 0) && (
@@ -315,274 +333,298 @@ export default function Sources() {
           </div>
         )}
         {!isError && sources && sources.length > 0 && (
-          <div className="divide-y">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sources.map((source) => {
               const kindCounts = getKindCounts(source.configs ?? []);
               const totalTokens = (source.configs ?? []).reduce(
                 (sum, c) => sum + c.token_count,
                 0
               );
+              const hasUpdate = updateStatus[source.id];
               return (
-                <div key={source.id} className="p-4 space-y-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Card
+                  key={source.id}
+                  className={`flex flex-col p-4 transition-shadow ${
+                    hasUpdate
+                      ? "ring-1 ring-amber-500/50 shadow-md dark:ring-amber-400/40"
+                      : ""
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        {editingId === source.id ? (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="text"
-                              value={editingName}
-                              onChange={(e) => setEditingName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter")
-                                  saveEditing(source.id);
-                                if (e.key === "Escape") cancelEditing();
-                              }}
-                              className="w-40 h-8"
-                              autoFocus
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-green-600"
-                              onClick={() => saveEditing(source.id)}
-                              disabled={updateNameMutation.isPending}
-                              aria-label={`Save name for ${source.name}`}
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground"
-                              onClick={cancelEditing}
-                              aria-label={`Cancel editing ${source.name}`}
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="font-medium">{source.name}</p>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-muted-foreground"
-                              onClick={() => startEditing(source)}
-                              title="Edit name"
-                              aria-label={`Edit ${source.name}`}
-                            >
-                              <Pencil className="w-3 h-3" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {source.type === "git"
-                          ? `Git · ${source.url}${
-                              source.branch ? ` · ${source.branch}` : ""
-                            }`
-                          : `Local · ${source.path}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                        {kindOrder
-                          .filter((k) => (kindCounts[k] || 0) > 0)
-                          .map((k) => (
-                            <span key={k} className="capitalize">
-                              {kindCounts[k]} {k}
-                              {kindCounts[k]! > 1 ? "s" : ""}
-                            </span>
-                          ))}
-                        {Object.keys(kindCounts).length === 0 && (
-                          <span>0 configs</span>
-                        )}
-                        {totalTokens > 0 && (
-                          <span>{formatTokenCount(totalTokens)} tokens</span>
-                        )}
-                        {source.last_scan_at
-                          ? ` · Scanned ${new Date(
-                              source.last_scan_at
-                            ).toLocaleDateString()}`
-                          : " · Not scanned yet"}
-                      </p>
+                      <p className="font-medium truncate">{source.name}</p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:justify-end">
-                      {source.type === "git" && (
-                        <>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              checkUpdatesMutation.mutate(source.id)
-                            }
-                            disabled={checkUpdatesMutation.isPending}
-                            title="Check for updates"
-                          >
-                            {checkUpdatesMutation.isPending ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <GitBranch className="w-3 h-3" />
-                            )}
-                            Check
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              pullUpdatesMutation.mutate(source.id)
-                            }
-                            disabled={pullUpdatesMutation.isPending}
-                            title="Pull latest version"
-                          >
-                            {pullUpdatesMutation.isPending ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <ArrowDownCircle className="w-3 h-3" />
-                            )}
-                            Pull
-                          </Button>
-                        </>
-                      )}
+                    {hasUpdate && (
+                      <Badge
+                        variant="secondary"
+                        className="shrink-0 gap-1 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                      >
+                        <Bell className="w-3 h-3" />
+                        Update
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {source.type === "git" ? (
+                      <>
+                        <GitBranch className="w-3 h-3 shrink-0" />
+                        <span className="truncate">
+                          {simplifyUrl(source.url)}
+                          {source.branch ? ` · ${source.branch}` : ""}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <HardDrive className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{source.path}</span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {kindOrder
+                      .filter((k) => (kindCounts[k] || 0) > 0)
+                      .map((k) => (
+                        <span key={k} className="capitalize">
+                          {kindCounts[k]} {k}
+                          {kindCounts[k]! > 1 ? "s" : ""}
+                        </span>
+                      ))}
+                    {Object.keys(kindCounts).length === 0 && (
+                      <span>0 configs</span>
+                    )}
+                    {totalTokens > 0 && (
+                      <span>{formatTokenCount(totalTokens)} tokens</span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {source.last_scan_at
+                      ? `Scanned ${new Date(
+                          source.last_scan_at
+                        ).toLocaleDateString()}`
+                      : "Not scanned yet"}
+                  </p>
+
+                  <div className="mt-auto pt-4 flex items-center gap-2">
+                    {source.type === "git" && (
+                      <Button
+                        type="button"
+                        variant={hasUpdate ? "default" : "outline"}
+                        size="sm"
+                        className="flex-1"
+                        onClick={() =>
+                          pullUpdatesMutation.mutate(source.id)
+                        }
+                        disabled={pullUpdatesMutation.isPending}
+                        title="Update & Scan"
+                      >
+                        {pullUpdatesMutation.isPending ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Download className="w-3 h-3" />
+                        )}
+                        Update
+                      </Button>
+                    )}
+                    {source.type === "local" && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="flex-1"
                         onClick={() => syncMutation.mutate(source.id)}
                         disabled={syncMutation.isPending}
-                        title="Sync & Scan"
+                        title="Scan"
                       >
                         {syncMutation.isPending ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
                         ) : (
                           <RefreshCw className="w-3 h-3" />
                         )}
-                        Sync
+                        Scan
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setConfiguringId(source.id)}
-                        title="Configure"
-                        aria-label={`Configure ${source.name}`}
-                      >
-                        <Settings2 className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => removeMutation.mutate(source.id)}
-                        disabled={removeMutation.isPending}
-                        className="text-destructive hover:bg-destructive/10"
-                        title="Remove"
-                        aria-label={`Remove ${source.name}`}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfiguringId(source.id)}
+                      title="Configure"
+                      aria-label={`Configure ${source.name}`}
+                    >
+                      <Settings2 className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeMutation.mutate(source.id)}
+                      disabled={removeMutation.isPending}
+                      className="text-destructive hover:bg-destructive/10"
+                      title="Remove"
+                      aria-label={`Remove ${source.name}`}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
         )}
       </Card>
 
-      {/* Drawer */}
-      {configuringId && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/40"
-            onClick={() => setConfiguringId(null)}
-          />
-          <aside className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg border-l bg-card shadow-xl overflow-auto">
-            <div className="p-6 space-y-6">
-              <div className="flex items-center justify-between">
+      <Sheet
+        open={!!configuringId}
+        onOpenChange={(open) => !open && setConfiguringId(null)}
+      >
+        <SheetContent className="w-full max-w-lg">
+          <SheetHeader>
+            <SheetTitle>Configure Source</SheetTitle>
+            <SheetDescription>{activeSource?.name ?? ""}</SheetDescription>
+          </SheetHeader>
+          {activeSource && (
+            <div className="mt-6 space-y-5">
+              <div className="space-y-4">
                 <div>
-                  <h2 className="text-lg font-semibold">Configure Source</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {activeSource?.name ?? ""}
+                  <Label className="text-sm font-medium">Name</Label>
+                  <Input
+                    type="text"
+                    value={drawerName}
+                    onChange={(e) => setDrawerName(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Type</Label>
+                  <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                    {activeSource.type === "git" ? (
+                      <>
+                        <GitBranch className="w-3.5 h-3.5" />
+                        Git
+                      </>
+                    ) : (
+                      <>
+                        <HardDrive className="w-3.5 h-3.5" />
+                        Local
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Source</Label>
+                  <p className="mt-1 text-sm text-muted-foreground break-all">
+                    {activeSource.type === "git"
+                      ? activeSource.url
+                      : activeSource.path}
                   </p>
                 </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <Label className="text-sm font-medium">
+                  Ignore Directories
+                </Label>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {drawerIgnoreDirs.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No ignored directories yet.
+                    </p>
+                  )}
+                  {drawerIgnoreDirs.map((dir) => (
+                    <Badge
+                      key={dir}
+                      variant="secondary"
+                      className="gap-1 pr-1"
+                    >
+                      {dir}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={() =>
+                          setDrawerIgnoreDirs((prev) =>
+                            prev.filter((d) => d !== dir)
+                          )
+                        }
+                        aria-label={`Stop ignoring ${dir}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row mt-3">
+                  <Input
+                    type="text"
+                    placeholder="Directory name to ignore"
+                    value={ignoreInput}
+                    onChange={(e) => setIgnoreInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        if (!ignoreInput.trim()) return;
+                        setDrawerIgnoreDirs((prev) => [
+                          ...prev,
+                          ignoreInput.trim(),
+                        ]);
+                        setIgnoreInput("");
+                      }
+                    }}
+                    aria-label="Directory name to ignore"
+                    className="flex-1 h-8 text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (!ignoreInput.trim()) return;
+                      setDrawerIgnoreDirs((prev) => [
+                        ...prev,
+                        ignoreInput.trim(),
+                      ]);
+                      setIgnoreInput("");
+                    }}
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
+                  variant="outline"
                   onClick={() => setConfiguringId(null)}
-                  aria-label="Close"
                 >
-                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() =>
+                    saveConfigMutation.mutate({
+                      id: activeSource.id,
+                      name: drawerName.trim(),
+                      dirs: drawerIgnoreDirs,
+                    })
+                  }
+                  disabled={
+                    !drawerName.trim() || saveConfigMutation.isPending
+                  }
+                >
+                  {saveConfigMutation.isPending && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                  )}
+                  Save
                 </Button>
               </div>
-              {activeSource && (
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-medium">
-                      Ignore Directories
-                    </Label>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {(activeSource.ignore_dirs ?? []).length === 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          No ignored directories yet.
-                        </p>
-                      )}
-                      {(activeSource.ignore_dirs ?? []).map((dir) => (
-                        <Badge
-                          key={dir}
-                          variant="secondary"
-                          className="gap-1 pr-1"
-                        >
-                          {dir}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeIgnoreDir(activeSource.id, dir)}
-                            aria-label={`Stop ignoring ${dir}`}
-                          >
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      type="text"
-                      placeholder="Directory name to ignore"
-                      value={ignoreInput}
-                      onChange={(e) => setIgnoreInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter")
-                          addIgnoreDir(activeSource.id);
-                      }}
-                      aria-label="Directory name to ignore"
-                      className="flex-1 h-8 text-xs"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addIgnoreDir(activeSource.id)}
-                    >
-                      <Plus className="w-3 h-3" />
-                      Add
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
-          </aside>
-        </>
-      )}
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
