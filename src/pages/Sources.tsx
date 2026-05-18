@@ -10,6 +10,13 @@ import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import {
   AlertCircle,
   Plus,
   Trash2,
@@ -52,6 +59,8 @@ export default function Sources() {
     queryFn: sourceApi.listSources,
     retry: false,
   });
+
+  const activeSource = sources?.find((s) => s.id === configuringId) ?? null;
 
   const addMutation = useMutation({
     mutationFn: () => sourceApi.addSource(urlOrPath, name || undefined),
@@ -466,15 +475,9 @@ export default function Sources() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          setConfiguringId(
-                            configuringId === source.id ? null : source.id
-                          )
-                        }
-                        className={configuringId === source.id ? "bg-accent" : ""}
+                        onClick={() => setConfiguringId(source.id)}
                         title="Configure"
                         aria-label={`Configure ${source.name}`}
-                        aria-expanded={configuringId === source.id}
                       >
                         <Settings2 className="w-3 h-3" />
                       </Button>
@@ -493,68 +496,84 @@ export default function Sources() {
                     </div>
                   </div>
 
-                  {configuringId === source.id && (
-                    <Card className="p-3 space-y-2 bg-background">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        Ignore Directories
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {source.ignore_dirs.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            No ignored directories yet.
-                          </p>
-                        )}
-                        {source.ignore_dirs.map((dir) => (
-                          <Badge
-                            key={dir}
-                            variant="secondary"
-                            className="gap-1 pr-1"
-                          >
-                            {dir}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
-                              onClick={() => removeIgnoreDir(source.id, dir)}
-                              aria-label={`Stop ignoring ${dir}`}
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          type="text"
-                          placeholder="Directory name to ignore"
-                          value={ignoreInput}
-                          onChange={(e) => setIgnoreInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter")
-                              addIgnoreDir(source.id);
-                          }}
-                          aria-label="Directory name to ignore"
-                          className="flex-1 h-7 text-xs"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => addIgnoreDir(source.id)}
-                        >
-                          <Plus className="w-3 h-3" />
-                          Add
-                        </Button>
-                      </div>
-                    </Card>
-                  )}
+
                 </div>
               );
             })}
           </div>
         )}
       </Card>
+      <Sheet
+        open={!!configuringId}
+        onOpenChange={(open) => !open && setConfiguringId(null)}
+      >
+        <SheetContent className="w-full max-w-lg">
+          <SheetHeader>
+            <SheetTitle>Configure Source</SheetTitle>
+            <SheetDescription>
+              {activeSource?.name}
+            </SheetDescription>
+          </SheetHeader>
+          {activeSource && (
+            <div className="mt-6 space-y-4">
+              <div>
+                <Label className="text-sm font-medium">
+                  Ignore Directories
+                </Label>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {activeSource.ignore_dirs.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No ignored directories yet.
+                    </p>
+                  )}
+                  {activeSource.ignore_dirs.map((dir) => (
+                    <Badge
+                      key={dir}
+                      variant="secondary"
+                      className="gap-1 pr-1"
+                    >
+                      {dir}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeIgnoreDir(activeSource.id, dir)}
+                        aria-label={`Stop ignoring ${dir}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  type="text"
+                  placeholder="Directory name to ignore"
+                  value={ignoreInput}
+                  onChange={(e) => setIgnoreInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter")
+                      addIgnoreDir(activeSource.id);
+                  }}
+                  aria-label="Directory name to ignore"
+                  className="flex-1 h-8 text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addIgnoreDir(activeSource.id)}
+                >
+                  <Plus className="w-3 h-3" />
+                  Add
+                </Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
