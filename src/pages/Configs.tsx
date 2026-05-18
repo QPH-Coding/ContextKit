@@ -6,6 +6,25 @@ import { formatTokenCount } from "@/lib/format";
 import { errorMessage } from "@/lib/utils";
 import type { ConfigSummary, AgentInfo, ConfigDetail } from "@/lib/types";
 import AgentIcon from "@/components/AgentIcon";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+} from "@/components/ui/sheet";
 import {
   AlertCircle,
   FileText,
@@ -19,13 +38,11 @@ import {
   Plus,
   Zap,
   AlertTriangle,
-  Square,
-  SquareCheck,
   ArrowLeft,
 } from "lucide-react";
 
 const kindOptions = [
-  { value: "", label: "All" },
+  { value: "all", label: "All" },
   { value: "skill", label: "Skill" },
   { value: "rule", label: "Rule" },
   { value: "agent", label: "Agent" },
@@ -33,17 +50,13 @@ const kindOptions = [
 ];
 
 function kindBadge(kind: string) {
-  const classes: Record<string, string> = {
-    skill:
-      "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-    rule:
-      "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-    agent:
-      "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-    mcp:
-      "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+  const variants: Record<string, string> = {
+    skill: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 hover:bg-blue-100",
+    rule: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 hover:bg-green-100",
+    agent: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 hover:bg-purple-100",
+    mcp: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 hover:bg-orange-100",
   };
-  return classes[kind] || "bg-gray-100 text-gray-800";
+  return variants[kind] || "bg-gray-100 text-gray-800 hover:bg-gray-100";
 }
 
 function useLocalStorageState<T>(
@@ -70,7 +83,7 @@ function useLocalStorageState<T>(
 
 export default function Configs() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [kind, setKind] = useState("");
+  const [kind, setKind] = useState("all");
   const [search, setSearch] = useState("");
   const selectedId = searchParams.get("config");
   const [showAgentSelector, setShowAgentSelector] = useState(false);
@@ -92,7 +105,7 @@ export default function Configs() {
     refetch,
   } = useQuery({
     queryKey: ["configs", kind],
-    queryFn: () => configApi.listConfigs(kind || undefined),
+    queryFn: () => configApi.listConfigs(kind === "all" ? undefined : kind),
     retry: false,
   });
 
@@ -330,35 +343,39 @@ export default function Configs() {
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
           <div className="relative w-full sm:w-56">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
+            <Input
               type="text"
               aria-label="Search configs"
               placeholder="Search configs..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm"
+              className="pl-9"
             />
           </div>
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-muted-foreground" />
-            <select
-              aria-label="Filter configs by kind"
+            <Select
               value={kind}
-              onChange={(e) => setKind(e.target.value)}
-              className="min-w-28 flex-1 rounded-md border bg-background px-3 py-2 text-sm sm:flex-none"
+              onValueChange={(v) => setKind(v)}
             >
-              {kindOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="min-w-28 w-auto">
+                <SelectValue placeholder="Filter by kind" />
+              </SelectTrigger>
+              <SelectContent>
+                {kindOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="relative">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setShowAgentSelector((s) => !s)}
-              className="inline-flex w-full items-center justify-center gap-1 rounded-md border px-3 py-2 text-xs font-medium hover:bg-accent sm:w-auto"
+              className="w-full sm:w-auto"
               aria-expanded={showAgentSelector}
               aria-haspopup="menu"
             >
@@ -369,27 +386,29 @@ export default function Configs() {
                   {quickAgents.length}
                 </span>
               )}
-            </button>
+            </Button>
             {showAgentSelector && (
               <>
                 <div
                   className="fixed inset-0 z-30"
                   onClick={() => setShowAgentSelector(false)}
                 />
-                <div
-                  className="absolute right-0 z-40 mt-1 w-full rounded-lg border bg-card p-2 shadow-lg sm:w-64"
+                <Card
+                  className="absolute right-0 z-40 mt-1 w-full sm:w-64 p-2 shadow-lg"
                   role="menu"
                 >
                   <div className="flex items-center justify-between px-2 py-1 border-b mb-1">
                     <span className="text-xs font-medium">Select Agents</span>
-                    <button
+                    <Button
                       type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
                       onClick={selectAllQuick}
                       disabled={isAgentsLoading || isAgentsError || !agents?.length}
-                      className="text-xs text-primary hover:underline disabled:pointer-events-none disabled:opacity-50"
                     >
                       {allQuickSelected ? "Deselect All" : "Select All"}
-                    </button>
+                    </Button>
                   </div>
                   {isAgentsLoading && (
                     <p className="px-2 py-2 text-xs text-muted-foreground">
@@ -411,17 +430,15 @@ export default function Configs() {
                       key={agent.id}
                       className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent cursor-pointer"
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={quickAgents.includes(agent.id)}
-                        onChange={() => toggleQuickAgent(agent.id)}
-                        className="rounded border-gray-300"
+                        onCheckedChange={() => toggleQuickAgent(agent.id)}
                       />
                       <AgentIcon agentId={agent.id} size={18} />
                       <span className="text-sm">{agent.name}</span>
                     </label>
                   ))}
-                </div>
+                </Card>
               </>
             )}
           </div>
@@ -429,67 +446,78 @@ export default function Configs() {
       </div>
 
       {assignmentError && (
-        <div className="flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          <p>{assignmentError}</p>
-          <button
-            type="button"
-            onClick={() => setAssignmentError(null)}
-            className="rounded-md p-0.5 hover:bg-destructive/10"
-            aria-label="Dismiss assignment error"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription className="flex items-start justify-between gap-3">
+            <p>{assignmentError}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="shrink-0 h-6 w-6"
+              onClick={() => setAssignmentError(null)}
+              aria-label="Dismiss assignment error"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
       {selectedConfigs.size > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:flex-wrap">
-          <div className="flex items-center gap-2">
-            <SquareCheck className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium">
-              {selectedConfigs.size} selected
-            </span>
+        <Card className="p-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+            <div className="flex items-center gap-2">
+              <Check className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">
+                {selectedConfigs.size} selected
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {agents?.map((agent) => (
+                <div key={agent.id} className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => batchAssign(agent.id)}
+                    title={`Batch install to ${agent.name}`}
+                    aria-label={`Batch install selected configs to ${agent.name}`}
+                  >
+                    <AgentIcon agentId={agent.id} size={16} />
+                    <Plus className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => batchUnassign(agent.id)}
+                    className="text-destructive hover:bg-destructive/10"
+                    title={`Batch uninstall from ${agent.name}`}
+                    aria-label={`Batch uninstall selected configs from ${agent.name}`}
+                  >
+                    <AgentIcon agentId={agent.id} size={16} assigned />
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              onClick={clearSelection}
+              className="ml-auto text-muted-foreground hover:text-foreground"
+            >
+              Clear
+            </Button>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {agents?.map((agent) => (
-              <div key={agent.id} className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => batchAssign(agent.id)}
-                  className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent"
-                  title={`Batch install to ${agent.name}`}
-                  aria-label={`Batch install selected configs to ${agent.name}`}
-                >
-                  <AgentIcon agentId={agent.id} size={16} />
-                  <Plus className="w-3 h-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => batchUnassign(agent.id)}
-                  className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent text-destructive"
-                  title={`Batch uninstall from ${agent.name}`}
-                  aria-label={`Batch uninstall selected configs from ${agent.name}`}
-                >
-                  <AgentIcon agentId={agent.id} size={16} assigned />
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={clearSelection}
-            className="text-xs text-muted-foreground hover:text-foreground underline ml-auto"
-          >
-            Clear
-          </button>
-        </div>
+        </Card>
       )}
 
       {configs && configs.some((c) => c.token_count === 0) && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm text-amber-800 dark:text-amber-200 flex items-start gap-2">
+        <Alert className="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
+          <AlertDescription>
             <p className="font-medium">Token counts not calculated</p>
             <p className="text-xs opacity-80">
               Some configs show 0 tokens because they were scanned before token
@@ -499,26 +527,28 @@ export default function Configs() {
               </Link>{" "}
               and click <strong>Sync</strong> on each source to recalculate.
             </p>
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       {grouped.length > 0 && (
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={expandAll}
-            className="text-xs rounded-md border px-2 py-1 hover:bg-accent"
           >
             Expand All
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={collapseAll}
-            className="text-xs rounded-md border px-2 py-1 hover:bg-accent"
           >
             Collapse All
-          </button>
+          </Button>
         </div>
       )}
 
@@ -527,33 +557,32 @@ export default function Configs() {
           <p className="p-4 text-sm text-muted-foreground">Loading...</p>
         )}
         {isError && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">Could not load configs</p>
-                <p className="mt-1 break-words text-xs opacity-90">
-                  {errorMessage(error)}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => refetch()}
-                  className="mt-3 rounded-md border border-destructive/30 px-2 py-1 text-xs font-medium hover:bg-destructive/10"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
+          <Alert variant="destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertTitle>Could not load configs</AlertTitle>
+            <AlertDescription>
+              <p className="mt-1 break-words text-xs opacity-90">
+                {errorMessage(error)}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                className="mt-3 border-destructive/30 hover:bg-destructive/10"
+              >
+                Retry
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
         {!isLoading && !isError && filteredConfigs.length === 0 && (
-          <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">
+          <Card className="p-8 text-center text-muted-foreground">
             <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p>No configs found.</p>
             <p className="text-sm mt-1">
               Add a source and sync it to discover configs.
             </p>
-          </div>
+          </Card>
         )}
         {grouped.map((group) => {
           const isExpanded = expandedSources.has(group.source_id);
@@ -561,7 +590,7 @@ export default function Configs() {
             group.configs.length > 0 &&
             group.configs.every((c) => selectedConfigs.has(c.id));
           return (
-            <div key={group.source_id} className="rounded-lg border bg-card overflow-hidden">
+            <Card key={group.source_id} className="overflow-hidden">
               <button
                 type="button"
                 onClick={() => toggleSource(group.source_id)}
@@ -583,20 +612,22 @@ export default function Configs() {
               {isExpanded && (
                 <div className="border-t divide-y">
                   <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
                       onClick={() => selectAllInGroup(group.configs, !allSelectedInGroup)}
-                      className="text-muted-foreground hover:text-foreground"
                       title={allSelectedInGroup ? "Deselect all" : "Select all"}
                       aria-label={`${allSelectedInGroup ? "Deselect" : "Select"} all configs in ${group.source_name}`}
                       aria-pressed={allSelectedInGroup}
                     >
                       {allSelectedInGroup ? (
-                        <SquareCheck className="w-4 h-4" />
+                        <Check className="w-4 h-4" />
                       ) : (
-                        <Square className="w-4 h-4" />
+                        <div className="w-4 h-4 rounded-sm border border-muted-foreground" />
                       )}
-                    </button>
+                    </Button>
                     <span className="text-xs text-muted-foreground">Select all</span>
                   </div>
                   {group.configs.map((config) => {
@@ -610,10 +641,12 @@ export default function Configs() {
                         }`}
                       >
                         <div className="flex items-center gap-3 shrink-0">
-                          <button
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
                             onClick={() => toggleConfigSelection(config.id)}
-                            className="text-muted-foreground hover:text-foreground"
                             aria-label={
                               isSelected
                                 ? "Deselect this config"
@@ -622,11 +655,11 @@ export default function Configs() {
                             aria-pressed={isSelected}
                           >
                             {isSelected ? (
-                              <SquareCheck className="w-4 h-4 text-primary" />
+                              <Check className="w-4 h-4 text-primary" />
                             ) : (
-                              <Square className="w-4 h-4" />
+                              <div className="w-4 h-4 rounded-sm border border-muted-foreground" />
                             )}
-                          </button>
+                          </Button>
                         </div>
                         <button
                           type="button"
@@ -634,11 +667,12 @@ export default function Configs() {
                           className="min-w-0 flex-1 text-left"
                         >
                           <div className="flex items-center gap-3">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium shrink-0 ${kindBadge(config.kind)}`}
+                            <Badge
+                              variant="outline"
+                              className={`shrink-0 ${kindBadge(config.kind)}`}
                             >
                               {config.kind}
-                            </span>
+                            </Badge>
                             <span className="font-medium text-sm truncate">
                               {config.name}
                             </span>
@@ -656,9 +690,11 @@ export default function Configs() {
                             {quickAgentsForConfig.map((agent) => {
                               const assigned = isAssigned(config.id, agent.id);
                               return (
-                                <button
+                                <Button
                                   type="button"
                                   key={agent.id}
+                                  variant={assigned ? "outline" : "outline"}
+                                  size="sm"
                                   onClick={() =>
                                     assigned
                                       ? unassignMutation.mutate({
@@ -674,10 +710,10 @@ export default function Configs() {
                                     assignMutation.isPending ||
                                     unassignMutation.isPending
                                   }
-                                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                                  className={`text-xs disabled:opacity-50 ${
                                     assigned
-                                      ? "border text-green-700 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:text-green-300"
-                                      : "border hover:bg-accent"
+                                      ? "border-green-200 text-green-700 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:text-green-300"
+                                      : "hover:bg-accent"
                                   }`}
                                   title={
                                     assigned
@@ -696,7 +732,7 @@ export default function Configs() {
                                     size={18}
                                     assigned={assigned}
                                   />
-                                </button>
+                                </Button>
                               );
                             })}
                           </div>
@@ -706,55 +742,42 @@ export default function Configs() {
                   })}
                 </div>
               )}
-            </div>
+            </Card>
           );
         })}
       </div>
 
-      {/* Detail Drawer */}
-      {selectedId && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/40 z-40"
-            onClick={closeConfig}
-          />
-          <aside
-            className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg overflow-auto border-l bg-card shadow-xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Config detail"
-          >
+      {/* Detail Sheet */}
+      <Sheet open={!!selectedId} onOpenChange={(open) => !open && closeConfig()}>
+        <SheetContent className="w-full max-w-lg p-0">
+          <ScrollArea className="h-full">
             <div className="p-6 space-y-6">
-              <div className="flex items-center justify-between">
-                <button
+              <SheetHeader className="flex flex-row items-center justify-between sm:flex-row sm:text-left">
+                <Button
                   ref={backButtonRef}
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={closeConfig}
-                  className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+                  className="gap-2"
                 >
                   <ArrowLeft className="h-4 w-4" />
                   Back
-                </button>
-                <button
-                  type="button"
-                  onClick={closeConfig}
-                  className="p-1 rounded-md hover:bg-accent"
-                  aria-label="Close config detail"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+                </Button>
+              </SheetHeader>
 
               {isDetailLoading && (
                 <p className="text-sm text-muted-foreground">Loading...</p>
               )}
               {isDetailError && (
-                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  <p className="font-medium">Failed to load config</p>
-                  <p className="mt-1 text-xs">
-                    {errorMessage(detailError)}
-                  </p>
-                </div>
+                <Alert variant="destructive">
+                  <AlertTitle>Failed to load config</AlertTitle>
+                  <AlertDescription>
+                    <p className="mt-1 text-xs">
+                      {errorMessage(detailError)}
+                    </p>
+                  </AlertDescription>
+                </Alert>
               )}
               {detail && !isDetailError && (
                 <DetailContent
@@ -772,9 +795,9 @@ export default function Configs() {
                 />
               )}
             </div>
-          </aside>
-        </>
-      )}
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -808,11 +831,12 @@ function DetailContent({
     <div className="space-y-6">
       <div className="space-y-1">
         <div className="flex items-center gap-2">
-          <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${kindBadge(detail.kind)}`}
+          <Badge
+            variant="outline"
+            className={kindBadge(detail.kind)}
           >
             {detail.kind}
-          </span>
+          </Badge>
           <span className="text-xs text-muted-foreground">
             {formatTokenCount(detail.token_count)} tokens
           </span>
@@ -823,14 +847,14 @@ function DetailContent({
         </p>
       </div>
 
-      <div className="rounded-md border bg-background p-3">
+      <Card className="p-3 bg-background">
         <p className="text-xs font-medium text-muted-foreground mb-2">
           Content Preview
         </p>
         <pre className="text-xs overflow-auto max-h-64 whitespace-pre-wrap font-mono">
           {detail.content}
         </pre>
-      </div>
+      </Card>
 
       <div className="space-y-3">
         <h4 className="font-semibold flex items-center gap-2">
@@ -848,9 +872,9 @@ function DetailContent({
           {compatibleAgents.map((agent) => {
             const assigned = isAssigned(agent.id);
             return (
-              <div
+              <Card
                 key={agent.id}
-                className="rounded-md border p-3 flex items-center justify-between"
+                className="p-3 flex items-center justify-between"
               >
                 <div className="flex items-center gap-2">
                   <AgentIcon agentId={agent.id} size={22} assigned={assigned} />
@@ -862,27 +886,30 @@ function DetailContent({
                   </div>
                 </div>
                 {assigned ? (
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => onUnassign(detail.id, agent.id)}
                     disabled={isUnassigning}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md border text-xs text-green-700 bg-green-50 hover:bg-green-100 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1 text-green-700 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:text-green-300 disabled:opacity-50"
                   >
                     <Check className="w-3 h-3" />
                     Assigned
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
                     type="button"
+                    size="sm"
                     onClick={() => onAssign(detail.id, agent.id)}
                     disabled={isAssigning}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50"
+                    className="flex items-center gap-1 disabled:opacity-50"
                   >
                     <Plus className="w-3 h-3 opacity-50" />
                     Assign
-                  </button>
+                  </Button>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>

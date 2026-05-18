@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { globalApi, sourceApi, configApi } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
 import { errorMessage } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertCircle,
   ArrowRight,
@@ -24,21 +28,22 @@ function StatCard({
   icon: React.ElementType;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold mt-1">{value}</p>
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="text-2xl font-bold mt-1">{value}</p>
+          </div>
+          <Icon className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
-        <Icon className="w-8 h-8 text-muted-foreground opacity-50" />
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function GlobalSearch() {
   const [query, setQuery] = useState("");
-  const navigate = useNavigate();
 
   const { data: configs, isError } = useQuery({
     queryKey: ["configs", ""],
@@ -61,43 +66,43 @@ function GlobalSearch() {
     <div className="relative">
       <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2">
         <Search className="w-4 h-4 text-muted-foreground" />
-        <input
+        <Input
           type="text"
           aria-label="Search configs globally"
           placeholder="Search configs globally..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="flex-1 bg-transparent text-sm outline-none"
+          className="flex-1 border-0 shadow-none focus-visible:ring-0 bg-transparent px-0"
         />
       </div>
       {query && isError && (
-        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 p-3 text-sm text-muted-foreground">
-          Search is unavailable while ContextKit is disconnected.
-        </div>
+        <Card className="absolute top-full left-0 right-0 mt-1 shadow-lg z-20 py-3 px-3">
+          <p className="text-sm text-muted-foreground">
+            Search is unavailable while ContextKit is disconnected.
+          </p>
+        </Card>
       )}
       {query && !isError && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 max-h-64 overflow-auto">
+        <Card className="absolute top-full left-0 right-0 mt-1 shadow-lg z-20 max-h-64 overflow-auto py-0">
           {results.map((config) => (
-            <button
+            <Link
               key={config.id}
-              onClick={() => {
-                navigate("/configs");
-                setQuery("");
-              }}
-              className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
+              to="/configs"
+              onClick={() => setQuery("")}
+              className="block w-full text-left px-3 py-2 hover:bg-accent text-sm transition-colors"
             >
               <span className="font-medium">{config.name}</span>
               <span className="text-muted-foreground ml-2">
                 {config.kind} · {config.source_name}
               </span>
-            </button>
+            </Link>
           ))}
-        </div>
+        </Card>
       )}
       {query && !isError && results.length === 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-card shadow-lg z-20 p-3 text-sm text-muted-foreground">
-          No configs found.
-        </div>
+        <Card className="absolute top-full left-0 right-0 mt-1 shadow-lg z-20 py-3 px-3">
+          <p className="text-sm text-muted-foreground">No configs found.</p>
+        </Card>
       )}
     </div>
   );
@@ -113,24 +118,23 @@ function ErrorPanel({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-      <div className="flex items-start gap-3">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <p className="font-medium">{title}</p>
-          <p className="mt-1 break-words text-xs opacity-90">
-            {errorMessage(error)}
-          </p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-3 rounded-md border border-destructive/30 px-2 py-1 text-xs font-medium hover:bg-destructive/10"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    </div>
+    <Alert variant="destructive">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>
+        <p className="mt-1 break-words text-xs opacity-90">
+          {errorMessage(error)}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRetry}
+          className="mt-3 border-destructive/30 hover:bg-destructive/10"
+        >
+          Retry
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -141,10 +145,12 @@ function kindCountsText(configs: { kind: string }[]) {
   for (const c of configs) {
     counts[c.kind] = (counts[c.kind] || 0) + 1;
   }
-  return kindOrder
-    .filter((k) => (counts[k] || 0) > 0)
-    .map((k) => `${counts[k]} ${k}${counts[k]! > 1 ? "s" : ""}`)
-    .join(" · ") || "0 configs";
+  return (
+    kindOrder
+      .filter((k) => (counts[k] || 0) > 0)
+      .map((k) => `${counts[k]} ${k}${counts[k]! > 1 ? "s" : ""}`)
+      .join(" · ") || "0 configs"
+  );
 }
 
 export default function Dashboard() {
@@ -228,7 +234,7 @@ export default function Dashboard() {
       )}
 
       {sources && sources.length > 0 && (
-        <div className="rounded-lg border bg-card p-4">
+        <Card className="p-4">
           <h3 className="font-semibold mb-3">Sources</h3>
           <div className="space-y-2">
             {sources.map((source) => (
@@ -250,25 +256,24 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {!isSourcesError && (!sources || sources.length === 0) && (
-        <div className="rounded-lg border border-dashed bg-card p-8 text-center">
+        <Card className="border-dashed p-8 text-center">
           <Database className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
           <p className="font-medium">No sources yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             Add a Git repository or local folder, then sync it to discover
             skills, rules, agents, and MCP configs.
           </p>
-          <Link
-            to="/sources"
-            className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Add source
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </Link>
-        </div>
+          <Button asChild className="mt-4">
+            <Link to="/sources">
+              Add source
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
+        </Card>
       )}
     </div>
   );

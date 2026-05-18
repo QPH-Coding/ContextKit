@@ -2,6 +2,16 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { globalApi } from "@/lib/api";
 import { errorMessage } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { AlertCircle, FolderOpen, RefreshCw, Check, X } from "lucide-react";
 
 type Notice = {
@@ -47,49 +57,53 @@ export default function Settings() {
       <h2 className="text-2xl font-bold">Settings</h2>
 
       {notice && (
-        <div
-          className={`flex items-start justify-between gap-3 rounded-md border p-3 text-sm ${
-            notice.tone === "error"
-              ? "border-destructive/30 bg-destructive/10 text-destructive"
-              : "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
-          }`}
+        <Alert
+          variant={notice.tone === "error" ? "destructive" : "default"}
+          className={
+            notice.tone === "success"
+              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
+              : undefined
+          }
           role="status"
         >
-          <p>{notice.message}</p>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="rounded-md p-0.5 hover:bg-black/5"
-            aria-label="Dismiss notification"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+          <AlertDescription className="flex items-start justify-between gap-3">
+            <p>{notice.message}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="shrink-0 h-6 w-6"
+              onClick={() => setNotice(null)}
+              aria-label="Dismiss notification"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div className="rounded-lg border bg-card p-4 space-y-4">
+      <Card className="p-4 space-y-4">
         {isLoading && (
           <p className="text-sm text-muted-foreground">Loading...</p>
         )}
         {isError && (
-          <div className="text-sm text-destructive">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">Could not load settings</p>
-                <p className="mt-1 break-words text-xs opacity-90">
-                  {errorMessage(error)}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => refetch()}
-                  className="mt-3 rounded-md border border-destructive/30 px-2 py-1 text-xs font-medium hover:bg-destructive/10"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
+          <Alert variant="destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertTitle>Could not load settings</AlertTitle>
+            <AlertDescription>
+              <p className="mt-1 break-words text-xs opacity-90">
+                {errorMessage(error)}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                className="mt-3 border-destructive/30 hover:bg-destructive/10"
+              >
+                Retry
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
         {settings && !isError && (
           <>
@@ -109,27 +123,29 @@ export default function Settings() {
                   Default Sync Mode
                 </label>
                 <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <select
-                    id="default-sync-mode"
+                  <Select
                     value={currentMode}
-                    onChange={(e) =>
-                      setSelectedMode(e.target.value as "reference" | "copy")
+                    onValueChange={(v) =>
+                      setSelectedMode(v as "reference" | "copy")
                     }
-                    className="rounded-md border bg-background px-3 py-2 text-sm"
                   >
-                    <option value="reference">Reference</option>
-                    <option value="copy">Copy</option>
-                  </select>
+                    <SelectTrigger id="default-sync-mode" className="w-40">
+                      <SelectValue placeholder="Select mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="reference">Reference</SelectItem>
+                      <SelectItem value="copy">Copy</SelectItem>
+                    </SelectContent>
+                  </Select>
                   {selectedMode && selectedMode !== settings.default_sync_mode && (
-                    <button
+                    <Button
                       type="button"
                       onClick={() => updateMutation.mutate(selectedMode)}
                       disabled={updateMutation.isPending}
-                      className="flex items-center gap-1 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
                     >
                       <Check className="w-4 h-4" />
                       Save
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -140,7 +156,7 @@ export default function Settings() {
             </div>
           </>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

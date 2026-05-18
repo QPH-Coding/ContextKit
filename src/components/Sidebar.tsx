@@ -5,6 +5,7 @@ import {
   FileText,
   Settings,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -29,19 +30,18 @@ export default function Sidebar() {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
           return (
-            <Link
+            <Button
               key={item.path}
-              to={item.path}
+              asChild
+              variant={isActive ? "default" : "ghost"}
+              className="justify-start shrink-0 md:w-full"
               aria-current={isActive ? "page" : undefined}
-              className={`flex shrink-0 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors md:w-full ${
-                isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              }`}
             >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              {item.label}
-            </Link>
+              <Link to={item.path}>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {item.label}
+              </Link>
+            </Button>
           );
         })}
       </nav>
