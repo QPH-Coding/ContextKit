@@ -89,7 +89,9 @@ export default function Configs() {
     "ck-quick-agents",
     []
   );
+  const [batchMode, setBatchMode] = useState(false);
   const [selectedConfigs, setSelectedConfigs] = useState<Set<string>>(new Set());
+  const [batchAgents, setBatchAgents] = useState<Set<string>>(new Set());
   const backButtonRef = useRef<HTMLButtonElement>(null);
 
   const queryClient = useQueryClient();
@@ -266,23 +268,58 @@ export default function Configs() {
     });
   };
 
-  const clearSelection = () => setSelectedConfigs(new Set());
+  const enterBatchMode = () => {
+    setBatchMode(true);
+    setSelectedConfigs(new Set());
+    setBatchAgents(new Set());
+  };
 
-  const batchAssign = (agentId: string) => {
+  const exitBatchMode = () => {
+    setBatchMode(false);
+    setSelectedConfigs(new Set());
+    setBatchAgents(new Set());
+  };
+
+  const toggleBatchAgent = (agentId: string) => {
+    setBatchAgents((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
+  };
+
+  const handleBatchInstall = () => {
     for (const configId of selectedConfigs) {
-      if (!isAssigned(configId, agentId)) {
-        assignMutation.mutate({ configId, agentId });
+      for (const agentId of batchAgents) {
+        if (!isAssigned(configId, agentId)) {
+          assignMutation.mutate({ configId, agentId });
+        }
       }
     }
   };
 
-  const batchUnassign = (agentId: string) => {
+  const handleBatchUninstall = () => {
     for (const configId of selectedConfigs) {
-      if (isAssigned(configId, agentId)) {
-        unassignMutation.mutate({ configId, agentId });
+      for (const agentId of batchAgents) {
+        if (isAssigned(configId, agentId)) {
+          unassignMutation.mutate({ configId, agentId });
+        }
       }
     }
   };
+
+  const allSelectedAssigned = useMemo(() => {
+    if (selectedConfigs.size === 0 || batchAgents.size === 0) return false;
+    return Array.from(selectedConfigs).every((configId) =>
+      Array.from(batchAgents).every((agentId) => isAssigned(configId, agentId))
+    );
+  }, [selectedConfigs, batchAgents, assignmentMap]);
+
+  const canInstall =
+    selectedConfigs.size > 0 && batchAgents.size > 0 && !allSelectedAssigned;
+  const canUninstall =
+    selectedConfigs.size > 0 && batchAgents.size > 0 && allSelectedAssigned;
 
   const getQuickAgentsForConfig = (config: ConfigSummary) => {
     const compatible = activeQuickAgents.filter(
@@ -466,56 +503,73 @@ export default function Configs() {
               </>
             )}
           </div>
+          {!batchMode && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={enterBatchMode}
+            >
+              Batch Operations
+            </Button>
+          )}
         </div>
       </div>
 
-      {selectedConfigs.size > 0 && (
+      {batchMode && (
         <Card className="p-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
-            <div className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-primary" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2 min-w-[120px]">
               <span className="text-sm font-medium">
                 {selectedConfigs.size} selected
               </span>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {agents?.map((agent) => (
-                <div key={agent.id} className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => batchAssign(agent.id)}
-                    title={`Batch install to ${agent.name}`}
-                    aria-label={`Batch install selected configs to ${agent.name}`}
-                  >
-                    <AgentIcon agentId={agent.id} size={16} />
-                    <Plus className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => batchUnassign(agent.id)}
-                    className="text-destructive hover:bg-destructive/10"
-                    title={`Batch uninstall from ${agent.name}`}
-                    aria-label={`Batch uninstall selected configs from ${agent.name}`}
-                  >
-                    <AgentIcon agentId={agent.id} size={16} assigned />
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
+            <div className="flex items-center gap-1.5 flex-wrap flex-1">
+              <span className="text-xs text-muted-foreground mr-1">Agents:</span>
+              {agents?.filter((a) => a.supports_user_scope).map((agent) => (
+                <Button
+                  key={agent.id}
+                  type="button"
+                  variant={batchAgents.has(agent.id) ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => toggleBatchAgent(agent.id)}
+                  className="h-7 px-2 text-xs gap-1"
+                >
+                  <AgentIcon agentId={agent.id} size={14} />
+                  <span className="hidden sm:inline">{agent.name}</span>
+                </Button>
               ))}
             </div>
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              onClick={clearSelection}
-              className="ml-auto text-muted-foreground hover:text-foreground"
-            >
-              Clear
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleBatchInstall}
+                disabled={!canInstall}
+                className="gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Install
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleBatchUninstall}
+                disabled={!canUninstall}
+                className="gap-1 text-destructive hover:bg-destructive/10 border-destructive/30"
+              >
+                <X className="w-3.5 h-3.5" />
+                Uninstall
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={exitBatchMode}
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         </Card>
       )}
@@ -593,25 +647,27 @@ export default function Configs() {
               </button>
               {isExpanded && (
                 <div className="border-t divide-y">
-                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                      onClick={() => selectAllInGroup(group.configs, !allSelectedInGroup)}
-                      title={allSelectedInGroup ? "Deselect all" : "Select all"}
-                      aria-label={`${allSelectedInGroup ? "Deselect" : "Select"} all configs in ${group.source_name}`}
-                      aria-pressed={allSelectedInGroup}
-                    >
-                      {allSelectedInGroup ? (
-                        <Check className="w-4 h-4" />
-                      ) : (
-                        <div className="w-4 h-4 rounded-sm border border-muted-foreground" />
-                      )}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">Select all</span>
-                  </div>
+                  {batchMode && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                        onClick={() => selectAllInGroup(group.configs, !allSelectedInGroup)}
+                        title={allSelectedInGroup ? "Deselect all" : "Select all"}
+                        aria-label={`${allSelectedInGroup ? "Deselect" : "Select"} all configs in ${group.source_name}`}
+                        aria-pressed={allSelectedInGroup}
+                      >
+                        {allSelectedInGroup ? (
+                          <Check className="w-4 h-4" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-sm border border-muted-foreground" />
+                        )}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">Select all</span>
+                    </div>
+                  )}
                   {group.configs.map((config) => {
                     const isSelected = selectedConfigs.has(config.id);
                     const quickAgentsForConfig = getQuickAgentsForConfig(config);
@@ -619,30 +675,32 @@ export default function Configs() {
                       <div
                         key={config.id}
                         className={`flex flex-col gap-3 p-3 transition-colors hover:bg-accent/30 sm:flex-row sm:items-center sm:justify-between sm:gap-4 ${
-                          isSelected ? "bg-primary/5" : ""
+                          isSelected && batchMode ? "bg-primary/5" : ""
                         }`}
                       >
-                        <div className="flex items-center gap-3 shrink-0">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                            onClick={() => toggleConfigSelection(config.id)}
-                            aria-label={
-                              isSelected
-                                ? "Deselect this config"
-                                : "Select this config"
-                            }
-                            aria-pressed={isSelected}
-                          >
-                            {isSelected ? (
-                              <Check className="w-4 h-4 text-primary" />
-                            ) : (
-                              <div className="w-4 h-4 rounded-sm border border-muted-foreground" />
-                            )}
-                          </Button>
-                        </div>
+                        {batchMode && (
+                          <div className="flex items-center gap-3 shrink-0">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                              onClick={() => toggleConfigSelection(config.id)}
+                              aria-label={
+                                isSelected
+                                  ? "Deselect this config"
+                                  : "Select this config"
+                              }
+                              aria-pressed={isSelected}
+                            >
+                              {isSelected ? (
+                                <Check className="w-4 h-4 text-primary" />
+                              ) : (
+                                <div className="w-4 h-4 rounded-sm border border-muted-foreground" />
+                              )}
+                            </Button>
+                          </div>
+                        )}
                         <button
                           type="button"
                           onClick={() => openConfig(config.id)}
@@ -668,56 +726,58 @@ export default function Configs() {
                             <Zap className="w-3 h-3" />
                             {formatTokenCount(config.token_count)}
                           </span>
-                          <div className="flex items-center gap-1">
-                            {quickAgentsForConfig.map((agent) => {
-                              const assigned = isAssigned(config.id, agent.id);
-                              return (
-                                <Button
-                                  type="button"
-                                  key={agent.id}
-                                  variant={assigned ? "outline" : "outline"}
-                                  size="sm"
-                                  onClick={() =>
-                                    assigned
-                                      ? unassignMutation.mutate({
-                                          configId: config.id,
-                                          agentId: agent.id,
-                                        })
-                                      : assignMutation.mutate({
-                                          configId: config.id,
-                                          agentId: agent.id,
-                                        })
-                                  }
-                                  disabled={
-                                    assignMutation.isPending ||
-                                    unassignMutation.isPending
-                                  }
-                                  className={`text-xs disabled:opacity-50 ${
-                                    assigned
-                                      ? "border-green-200 text-green-700 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:text-green-300"
-                                      : "hover:bg-accent"
-                                  }`}
-                                  title={
-                                    assigned
-                                      ? `Uninstall from ${agent.name}`
-                                      : `Install to ${agent.name}`
-                                  }
-                                  aria-label={
-                                    assigned
-                                      ? `Uninstall ${config.name} from ${agent.name}`
-                                      : `Install ${config.name} to ${agent.name}`
-                                  }
-                                  aria-pressed={assigned}
-                                >
-                                  <AgentIcon
-                                    agentId={agent.id}
-                                    size={18}
-                                    assigned={assigned}
-                                  />
-                                </Button>
-                              );
-                            })}
-                          </div>
+                          {!batchMode && (
+                            <div className="flex items-center gap-1">
+                              {quickAgentsForConfig.map((agent) => {
+                                const assigned = isAssigned(config.id, agent.id);
+                                return (
+                                  <Button
+                                    type="button"
+                                    key={agent.id}
+                                    variant={assigned ? "outline" : "outline"}
+                                    size="sm"
+                                    onClick={() =>
+                                      assigned
+                                        ? unassignMutation.mutate({
+                                            configId: config.id,
+                                            agentId: agent.id,
+                                          })
+                                        : assignMutation.mutate({
+                                            configId: config.id,
+                                            agentId: agent.id,
+                                          })
+                                    }
+                                    disabled={
+                                      assignMutation.isPending ||
+                                      unassignMutation.isPending
+                                    }
+                                    className={`text-xs disabled:opacity-50 ${
+                                      assigned
+                                        ? "border-green-200 text-green-700 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:text-green-300"
+                                        : "hover:bg-accent"
+                                    }`}
+                                    title={
+                                      assigned
+                                        ? `Uninstall from ${agent.name}`
+                                        : `Install to ${agent.name}`
+                                    }
+                                    aria-label={
+                                      assigned
+                                        ? `Uninstall ${config.name} from ${agent.name}`
+                                        : `Install ${config.name} to ${agent.name}`
+                                    }
+                                    aria-pressed={assigned}
+                                  >
+                                    <AgentIcon
+                                      agentId={agent.id}
+                                      size={18}
+                                      assigned={assigned}
+                                    />
+                                  </Button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
