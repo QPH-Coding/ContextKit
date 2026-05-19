@@ -26,6 +26,17 @@ import {
   SheetHeader,
 } from "@/components/ui/sheet";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   FileText,
   Filter,
   Search,
@@ -37,6 +48,8 @@ import {
   Plus,
   Zap,
   ArrowLeft,
+  Pin,
+  Package,
 } from "lucide-react";
 
 const kindOptions = [
@@ -440,8 +453,8 @@ export default function Configs() {
               aria-expanded={showAgentSelector}
               aria-haspopup="menu"
             >
-              <User className="w-3.5 h-3.5" />
-              Quick Install Agents
+              <Pin className="w-3.5 h-3.5" />
+              Pin
               {quickAgents.length > 0 && (
                 <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px]">
                   {quickAgents.length}
@@ -508,8 +521,10 @@ export default function Configs() {
               type="button"
               variant="secondary"
               onClick={enterBatchMode}
+              className="gap-1.5"
             >
-              Batch Operations
+              <Package className="w-3.5 h-3.5" />
+              Bulk
             </Button>
           )}
         </div>
@@ -517,29 +532,77 @@ export default function Configs() {
 
       {batchMode && (
         <Card className="p-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2 min-w-[120px]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
               <span className="text-sm font-medium">
                 {selectedConfigs.size} selected
               </span>
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap flex-1">
-              <span className="text-xs text-muted-foreground mr-1">Agents:</span>
-              {agents?.filter((a) => a.supports_user_scope).map((agent) => (
-                <Button
-                  key={agent.id}
-                  type="button"
-                  variant={batchAgents.has(agent.id) ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => toggleBatchAgent(agent.id)}
-                  className="h-7 px-2 text-xs gap-1"
-                >
-                  <AgentIcon agentId={agent.id} size={14} />
-                  <span className="hidden sm:inline">{agent.name}</span>
-                </Button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 gap-1 min-w-[120px] justify-start"
+                  >
+                    {batchAgents.size === 0 ? (
+                      <span className="text-muted-foreground text-xs">Select agents</span>
+                    ) : (
+                      <div className="flex items-center">
+                        {Array.from(batchAgents)
+                          .slice(0, 3)
+                          .map((agentId, index) => (
+                            <div
+                              key={agentId}
+                              className="rounded-sm bg-muted p-0.5 -ml-1.5 first:ml-0 shadow-sm"
+                              style={{ zIndex: 10 - index }}
+                            >
+                              <AgentIcon agentId={agentId} size={16} />
+                            </div>
+                          ))}
+                        {batchAgents.size > 3 && (
+                          <span className="text-xs text-muted-foreground ml-1">
+                            +{batchAgents.size - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-0 overflow-hidden rounded-md" align="end">
+                  <Command>
+                    <CommandList>
+                      <CommandGroup>
+                        {agents
+                          ?.filter((a) => a.supports_user_scope)
+                          .map((agent) => (
+                            <CommandItem
+                              key={agent.id}
+                              onSelect={() => toggleBatchAgent(agent.id)}
+                              className="flex items-center gap-2 cursor-pointer"
+                            >
+                              <div
+                                className={`w-4 h-4 rounded-sm border flex items-center justify-center ${
+                                  batchAgents.has(agent.id)
+                                    ? "bg-primary border-primary"
+                                    : "border-muted-foreground"
+                                }`}
+                              >
+                                {batchAgents.has(agent.id) && (
+                                  <Check className="w-3 h-3 text-primary-foreground" />
+                                )}
+                              </div>
+                              <AgentIcon agentId={agent.id} size={16} />
+                              <span className="text-sm">{agent.name}</span>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <div className="flex items-center gap-2">
               <Button
                 type="button"
                 size="sm"
@@ -571,6 +634,7 @@ export default function Configs() {
               </Button>
             </div>
           </div>
+        </div>
         </Card>
       )}
 
