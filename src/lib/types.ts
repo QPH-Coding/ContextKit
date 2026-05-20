@@ -49,6 +49,7 @@ export interface Stats {
 export interface Settings {
   config_dir: string;
   default_sync_mode: "reference" | "copy";
+  pinned_agents: string[];
 }
 
 export interface AgentInfo {
@@ -75,4 +76,30 @@ export interface DirNode {
   name: string;
   relative_path: string;
   has_children: boolean;
+}
+
+export type McpTransport = "stdio" | "sse" | "streamable-http";
+
+export interface McpConfig {
+  id: string;
+  name: string;
+  transport: McpTransport;
+  description?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface McpFormData {
+  id: string;
+  name: string;
+  transport: McpTransport;
+  description?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
 }

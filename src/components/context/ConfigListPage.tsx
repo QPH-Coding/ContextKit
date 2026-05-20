@@ -11,15 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -38,7 +30,6 @@ import {
 } from "@/components/ui/command";
 import {
   FileText,
-  Filter,
   Search,
   X,
   User,
@@ -48,60 +39,31 @@ import {
   Plus,
   Zap,
   ArrowLeft,
-  Pin,
   Package,
+  Settings,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 
-const kindOptions = [
-  { value: "all", label: "All" },
-  { value: "skill", label: "Skill" },
-  { value: "rule", label: "Rule" },
-  { value: "agent", label: "Agent" },
-  { value: "mcp", label: "MCP" },
-];
+const kindBadgeClass: Record<string, string> = {
+  skill: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 hover:bg-blue-100",
+  rule: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 hover:bg-green-100",
+  agent: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 hover:bg-purple-100",
+  mcp: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 hover:bg-orange-100",
+};
 
 function kindBadge(kind: string) {
-  const variants: Record<string, string> = {
-    skill: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 hover:bg-blue-100",
-    rule: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 hover:bg-green-100",
-    agent: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 hover:bg-purple-100",
-    mcp: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 hover:bg-orange-100",
-  };
-  return variants[kind] || "bg-gray-100 text-gray-800 hover:bg-gray-100";
+  return kindBadgeClass[kind] || "bg-gray-100 text-gray-800 hover:bg-gray-100";
 }
 
-function useLocalStorageState<T>(
-  key: string,
-  initialValue: T
-): [T, (v: T | ((prev: T) => T)) => void] {
-  const [state, setState] = useState<T>(() => {
-    try {
-      const item = localStorage.getItem(key);
-      return item ? (JSON.parse(item) as T) : initialValue;
-    } catch {
-      return initialValue;
-    }
-  });
-  const setValue = (value: T | ((prev: T) => T)) => {
-    setState((prev) => {
-      const next = typeof value === "function" ? (value as (prev: T) => T)(prev) : value;
-      localStorage.setItem(key, JSON.stringify(next));
-      return next;
-    });
-  };
-  return [state, setValue];
+export interface ConfigListPageProps {
+  kind: "skill" | "rule" | "agent" | "mcp";
+  title: string;
 }
 
-export default function Configs() {
+export default function ConfigListPage({ kind, title }: ConfigListPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [kind, setKind] = useState("all");
   const [search, setSearch] = useState("");
   const selectedId = searchParams.get("config");
-  const [showAgentSelector, setShowAgentSelector] = useState(false);
-  const [quickAgents, setQuickAgents] = useLocalStorageState<string[]>(
-    "ck-quick-agents",
-    []
-  );
   const [batchMode, setBatchMode] = useState(false);
   const [selectedConfigs, setSelectedConfigs] = useState<Set<string>>(new Set());
   const [batchAgents, setBatchAgents] = useState<Set<string>>(new Set());
@@ -117,7 +79,7 @@ export default function Configs() {
     refetch,
   } = useQuery({
     queryKey: ["configs", kind],
-    queryFn: () => configApi.listConfigs(kind === "all" ? undefined : kind),
+    queryFn: () => configApi.listConfigs(kind),
     retry: false,
   });
 
@@ -134,10 +96,21 @@ export default function Configs() {
   });
 
   const {
+    data: settings,
+    isError: isSettingsError,
+    error: settingsError,
+    refetch: refetchSettings,
+  } = useQuery({
+    queryKey: ["settings"],
+    queryFn: globalApi.getSettings,
+    retry: false,
+  });
+
+  const {
     data: agents,
-    isLoading: isAgentsLoading,
     isError: isAgentsError,
     error: agentsError,
+    refetch: refetchAgents,
   } = useQuery({
     queryKey: ["agents"],
     queryFn: globalApi.listAgents,
@@ -236,29 +209,10 @@ export default function Configs() {
   const isAssigned = (configId: string, agentId: string) =>
     assignmentMap.get(configId)?.has(agentId) ?? false;
 
+  const pinnedAgentIds = settings?.pinned_agents ?? [];
+
   const activeQuickAgents =
-    agents?.filter((a) =>
-      quickAgents.length > 0 ? quickAgents.includes(a.id) : true
-    ) ?? [];
-
-  const toggleQuickAgent = (agentId: string) => {
-    setQuickAgents((prev) =>
-      prev.includes(agentId)
-        ? prev.filter((id) => id !== agentId)
-        : [...prev, agentId]
-    );
-  };
-
-  const allQuickSelected =
-    agents && agents.length > 0 && agents.every((a) => quickAgents.includes(a.id));
-
-  const selectAllQuick = () => {
-    if (allQuickSelected) {
-      setQuickAgents([]);
-    } else {
-      setQuickAgents(agents?.map((a) => a.id) ?? []);
-    }
-  };
+    agents?.filter((a) => pinnedAgentIds.includes(a.id)) ?? [];
 
   // Multi-select helpers
   const toggleConfigSelection = (configId: string) => {
@@ -410,10 +364,32 @@ export default function Configs() {
     }
   }, [configs]);
 
+  useEffect(() => {
+    if (isSettingsError && settingsError) {
+      toast.error(`Failed to load settings: ${errorMessage(settingsError)}`, {
+        id: "settings-error",
+        action: { label: "Retry", onClick: () => refetchSettings() },
+      });
+    } else {
+      toast.dismiss("settings-error");
+    }
+  }, [isSettingsError, settingsError, refetchSettings]);
+
+  useEffect(() => {
+    if (isAgentsError && agentsError) {
+      toast.error(`Failed to load agents: ${errorMessage(agentsError)}`, {
+        id: "agents-error",
+        action: { label: "Retry", onClick: () => refetchAgents() },
+      });
+    } else {
+      toast.dismiss("agents-error");
+    }
+  }, [isAgentsError, agentsError, refetchAgents]);
+
   return (
     <div className="max-w-5xl space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <h2 className="text-2xl font-bold">Configs</h2>
+        <h2 className="text-2xl font-bold">{title}</h2>
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
           <div className="relative w-full sm:w-56">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -425,96 +401,6 @@ export default function Configs() {
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
-          </div>
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <Select
-              value={kind}
-              onValueChange={(v) => setKind(v)}
-            >
-              <SelectTrigger className="min-w-28 w-auto">
-                <SelectValue placeholder="Filter by kind" />
-              </SelectTrigger>
-              <SelectContent>
-                {kindOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="relative">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowAgentSelector((s) => !s)}
-              className="w-full sm:w-auto"
-              aria-expanded={showAgentSelector}
-              aria-haspopup="menu"
-            >
-              <Pin className="w-3.5 h-3.5" />
-              Pin
-              {quickAgents.length > 0 && (
-                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px]">
-                  {quickAgents.length}
-                </span>
-              )}
-            </Button>
-            {showAgentSelector && (
-              <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setShowAgentSelector(false)}
-                />
-                <Card
-                  className="absolute right-0 z-40 mt-1 w-full sm:w-64 p-2 shadow-lg"
-                  role="menu"
-                >
-                  <div className="flex items-center justify-between px-2 py-1 border-b mb-1">
-                    <span className="text-xs font-medium">Select Agents</span>
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-xs"
-                      onClick={selectAllQuick}
-                      disabled={isAgentsLoading || isAgentsError || !agents?.length}
-                    >
-                      {allQuickSelected ? "Deselect All" : "Select All"}
-                    </Button>
-                  </div>
-                  {isAgentsLoading && (
-                    <p className="px-2 py-2 text-xs text-muted-foreground">
-                      Loading agents...
-                    </p>
-                  )}
-                  {isAgentsError && (
-                    <p className="px-2 py-2 text-xs text-destructive">
-                      {errorMessage(agentsError)}
-                    </p>
-                  )}
-                  {!isAgentsLoading && !isAgentsError && agents?.length === 0 && (
-                    <p className="px-2 py-2 text-xs text-muted-foreground">
-                      No agents available.
-                    </p>
-                  )}
-                  {!isAgentsError && agents?.map((agent) => (
-                    <label
-                      key={agent.id}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent cursor-pointer"
-                    >
-                      <Checkbox
-                        checked={quickAgents.includes(agent.id)}
-                        onCheckedChange={() => toggleQuickAgent(agent.id)}
-                      />
-                      <AgentIcon agentId={agent.id} size={18} />
-                      <span className="text-sm">{agent.name}</span>
-                    </label>
-                  ))}
-                </Card>
-              </>
-            )}
           </div>
           {!batchMode && (
             <Button
@@ -529,6 +415,42 @@ export default function Configs() {
           )}
         </div>
       </div>
+
+      {pinnedAgentIds.length === 0 && !isSettingsError && !isAgentsError && (
+        <Card className="p-3 bg-muted/30 border-dashed">
+          <div className="flex items-center gap-3">
+            <Settings className="w-4 h-4 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              No agents pinned.{" "}
+              <Link
+                to="/settings"
+                className="text-primary underline underline-offset-2 hover:text-primary/80"
+              >
+                Go to Settings
+              </Link>{" "}
+              to pin agents for quick install.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {activeQuickAgents.length === 0 && pinnedAgentIds.length > 0 && !isSettingsError && !isAgentsError && (
+        <Card className="p-3 bg-muted/30 border-dashed">
+          <div className="flex items-center gap-3">
+            <Settings className="w-4 h-4 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              Pinned agents do not support {kind} configs. Pin other agents in{" "}
+              <Link
+                to="/settings"
+                className="text-primary underline underline-offset-2 hover:text-primary/80"
+              >
+                Settings
+              </Link>{" "}
+              for quick install.
+            </p>
+          </div>
+        </Card>
+      )}
 
       {batchMode && (
         <Card className="p-3">

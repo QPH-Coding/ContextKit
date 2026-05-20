@@ -1,12 +1,12 @@
 use crate::agent::registry::AgentRegistry;
-use crate::agent::{AssignmentManager, AssignmentMechanism};
 use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::models::{
-    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, PathScope, Settings,
-    Source, SourceType, Stats, SyncMode,
+    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, McpConfig, PathScope,
+    Settings, Source, SourceType, Stats, SyncMode,
 };
 use crate::source::SourceManager;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -14,17 +14,17 @@ use std::path::{Path, PathBuf};
 pub struct App {
     source_manager: SourceManager,
     agent_registry: AgentRegistry,
-    assignment_manager: AssignmentManager,
     settings: Settings,
+    mcps: Vec<McpConfig>,
 }
 
 impl App {
     pub fn new() -> Result<Self> {
         let source_manager = SourceManager::new()?;
-        let (default_sync_mode, mut agent_dirs) = source_manager
+        let (default_sync_mode, mut agent_dirs, pinned_agents) = source_manager
             .config()
             .load_settings()?
-            .unwrap_or((SyncMode::Reference, std::collections::HashMap::new()));
+            .unwrap_or((SyncMode::Reference, std::collections::HashMap::new(), Vec::new()));
         let agent_registry = AgentRegistry::new();
         let mut changed = false;
         for agent in agent_registry.list() {
@@ -39,12 +39,14 @@ impl App {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
             agent_dirs,
+            pinned_agents,
         };
+        let mcps = Self::load_mcps(source_manager.config())?;
         let app = Self {
             source_manager,
             agent_registry,
-            assignment_manager: AssignmentManager::new(),
             settings,
+            mcps,
         };
         if changed {
             let _ = app.save_settings();
@@ -55,10 +57,10 @@ impl App {
     pub fn with_config_dir<P: AsRef<Path>>(dir: P) -> Result<Self> {
         let config = ConfigManager::with_dir(dir);
         let source_manager = SourceManager::with_config(config)?;
-        let (default_sync_mode, mut agent_dirs) = source_manager
+        let (default_sync_mode, mut agent_dirs, pinned_agents) = source_manager
             .config()
             .load_settings()?
-            .unwrap_or((SyncMode::Reference, std::collections::HashMap::new()));
+            .unwrap_or((SyncMode::Reference, std::collections::HashMap::new(), Vec::new()));
         let agent_registry = AgentRegistry::new();
         let mut changed = false;
         for agent in agent_registry.list() {
@@ -73,12 +75,14 @@ impl App {
             config_dir: source_manager.config().config_dir().to_path_buf(),
             default_sync_mode,
             agent_dirs,
+            pinned_agents,
         };
+        let mcps = Self::load_mcps(source_manager.config())?;
         let app = Self {
             source_manager,
             agent_registry,
-            assignment_manager: AssignmentManager::new(),
             settings,
+            mcps,
         };
         if changed {
             let _ = app.save_settings();
@@ -299,7 +303,7 @@ impl App {
             }
         })?;
 
-        if !agent.supported_kinds().contains(&config.kind) {
+        if !agent.can_install(config.kind) {
             return Err(ContextKitError::InvalidPath(format!(
                 "Agent {agent_id} does not support config kind {:?}",
                 config.kind
@@ -322,9 +326,7 @@ impl App {
                 ))
             })?;
 
-        let mechanism = agent.mechanism(config.kind);
-
-        // For Skill configs, symlink/copy the parent directory instead of the file.
+        // For Skill configs, install the parent directory instead of the file.
         let source = if config.kind == ConfigKind::Skill {
             source_path.parent().ok_or_else(|| {
                 ContextKitError::InvalidPath(
@@ -335,29 +337,12 @@ impl App {
             source_path
         };
 
-        // JsonInject merges into an existing config file; file-level conflicts only apply to
-        // symlink/copy assignments.
-        if mechanism != AssignmentMechanism::JsonInject
-            && self.assignment_manager.check_conflict(&target)?
-        {
-            return Err(ContextKitError::AssignmentConflict {
-                message: format!("Target already exists: {}", target.display()),
-            });
-        }
-
-        if mechanism == AssignmentMechanism::JsonInject && config.kind == ConfigKind::Mcp {
-            let server_config: serde_json::Value =
-                serde_json::from_str(&config.content).map_err(|e| {
-                    ContextKitError::AssignmentConflict {
-                        message: format!("Invalid MCP server JSON in config: {e}"),
-                    }
-                })?;
-            self.assignment_manager
-                .assign_json_server(&target, &config.name, server_config)?;
+        let server_name = if config.kind == ConfigKind::Mcp {
+            Some(config.name.as_str())
         } else {
-            self.assignment_manager
-                .assign(source, &target, mechanism)?;
-        }
+            None
+        };
+        agent.install(source, &target, config.kind, server_name)?;
 
         let assignment = Assignment {
             config_id: config_id.into(),
@@ -405,15 +390,13 @@ impl App {
                 ))
             })?;
 
-        let mechanism = agent.mechanism(config.kind);
-        let server_name = if mechanism == AssignmentMechanism::JsonInject {
+        let server_name = if config.kind == ConfigKind::Mcp {
             Some(config.name.as_str())
         } else {
             None
         };
 
-        self.assignment_manager
-            .unassign(&target, mechanism, server_name)?;
+        agent.uninstall(&target, config.kind, server_name)?;
 
         self.source_manager.remove_assignment(config_id, agent_id)?;
         Ok(())
@@ -495,7 +478,7 @@ impl App {
     fn save_settings(&self) -> Result<()> {
         self.source_manager
             .config()
-            .save_settings(self.settings.default_sync_mode, &self.settings.agent_dirs)
+            .save_settings(self.settings.default_sync_mode, &self.settings.agent_dirs, &self.settings.pinned_agents)
     }
 
     pub fn list_agent_settings(&self) -> Vec<AgentSetting> {
@@ -514,17 +497,23 @@ impl App {
             .collect()
     }
 
-    pub fn update_agent_dir(&mut self, agent_id: &str, dir: Option<String>) -> Result<()> {
-        if dir.as_ref().map(|d| d.is_empty()).unwrap_or(false) {
-            self.settings.agent_dirs.remove(agent_id);
-        } else if let Some(d) = dir {
-            self.settings.agent_dirs.insert(agent_id.to_string(), d);
-        } else {
-            self.settings.agent_dirs.remove(agent_id);
+    pub fn update_agent_setting(&mut self, agent_id: &str, dir: Option<String>, pinned: Option<bool>) -> Result<()> {
+        if let Some(d) = dir {
+            if d.is_empty() {
+                self.settings.agent_dirs.remove(agent_id);
+            } else {
+                self.settings.agent_dirs.insert(agent_id.to_string(), d);
+            }
         }
-        self.source_manager
-            .config()
-            .save_settings(self.settings.default_sync_mode, &self.settings.agent_dirs)
+        if let Some(p) = pinned {
+            let pos = self.settings.pinned_agents.iter().position(|a| a == agent_id);
+            if p && pos.is_none() {
+                self.settings.pinned_agents.push(agent_id.to_string());
+            } else if !p && pos.is_some() {
+                self.settings.pinned_agents.retain(|a| a != agent_id);
+            }
+        }
+        self.save_settings()
     }
 
     // === 内部辅助 ===
@@ -557,6 +546,73 @@ impl App {
     pub fn agent_registry(&self) -> &AgentRegistry {
         &self.agent_registry
     }
+
+    // === MCP 管理 ===
+
+    pub fn list_mcps(&self) -> Vec<McpConfig> {
+        self.mcps.clone()
+    }
+
+    pub fn add_mcp(&mut self, mcp: McpConfig) -> Result<()> {
+        if self.mcps.iter().any(|m| m.id == mcp.id) {
+            return Err(ContextKitError::InvalidPath(format!(
+                "MCP '{}' already exists",
+                mcp.id
+            )));
+        }
+        self.mcps.push(mcp);
+        self.save_mcps()
+    }
+
+    pub fn update_mcp(&mut self, mcp: McpConfig) -> Result<()> {
+        let pos = self.mcps.iter().position(|m| m.id == mcp.id)
+            .ok_or_else(|| ContextKitError::ConfigNotFound { id: mcp.id.clone() })?;
+        self.mcps[pos] = mcp;
+        self.save_mcps()
+    }
+
+    pub fn remove_mcp(&mut self, id: &str) -> Result<()> {
+        let pos = self.mcps.iter().position(|m| m.id == id)
+            .ok_or_else(|| ContextKitError::ConfigNotFound { id: id.into() })?;
+        self.mcps.remove(pos);
+        self.save_mcps()
+    }
+
+    fn load_mcps(config: &ConfigManager) -> Result<Vec<McpConfig>> {
+        let path = config.mcps_path();
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let value: toml::Value = toml::from_str(&content).map_err(ContextKitError::from)?;
+        let arr = value.get("mcps")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&Vec::new())
+            .clone();
+        let mut mcps = Vec::new();
+        for item in arr {
+            let mcp: McpConfig = item.clone().try_into().map_err(|e: toml::de::Error| ContextKitError::TomlParse(e))?;
+            mcps.push(mcp);
+        }
+        Ok(mcps)
+    }
+
+    fn save_mcps(&self) -> Result<()> {
+        let path = self.source_manager.config().mcps_path();
+        let wrapper = McpsWrapper {
+            version: 1,
+            mcps: self.mcps.clone(),
+        };
+        let content = toml::to_string_pretty(&wrapper).map_err(ContextKitError::from)?;
+        std::fs::write(&path, content)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct McpsWrapper {
+    version: u32,
+    mcps: Vec<McpConfig>,
 }
 
 fn looks_like_url(input: &str) -> bool {

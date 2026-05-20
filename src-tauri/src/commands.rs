@@ -1,7 +1,7 @@
 use contextkit_core::app::App;
 use contextkit_core::models::{
-    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, PathScope, Settings,
-    Source, Stats, SyncMode,
+    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, McpConfig, PathScope,
+    Settings, Source, Stats, SyncMode,
 };
 use std::sync::Mutex;
 use tauri::State;
@@ -194,11 +194,38 @@ pub fn list_agent_settings(state: State<AppState>) -> Result<Vec<AgentSetting>, 
 }
 
 #[tauri::command]
-pub fn update_agent_dir(
+pub fn update_agent_setting(
     state: State<'_, AppState>,
     agent_id: String,
     dir: Option<String>,
+    pinned: Option<bool>,
 ) -> Result<(), String> {
     let mut app = state.app.lock().map_err(|e| e.to_string())?;
-    app.update_agent_dir(&agent_id, dir).map_err(|e| e.to_string())
+    app.update_agent_setting(&agent_id, dir, pinned).map_err(|e| e.to_string())
+}
+
+// === MCP 管理 ===
+
+#[tauri::command]
+pub fn list_mcps(state: State<AppState>) -> Result<Vec<McpConfig>, String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    Ok(app.list_mcps())
+}
+
+#[tauri::command]
+pub fn add_mcp(state: State<'_, AppState>, mcp: McpConfig) -> Result<(), String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.add_mcp(mcp).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_mcp(state: State<'_, AppState>, mcp: McpConfig) -> Result<(), String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.update_mcp(mcp).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_mcp(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut app = state.app.lock().map_err(|e| e.to_string())?;
+    app.remove_mcp(&id).map_err(|e| e.to_string())
 }

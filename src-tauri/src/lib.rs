@@ -36,7 +36,11 @@ pub fn run() {
             commands::update_settings,
             commands::list_agents,
             commands::list_agent_settings,
-            commands::update_agent_dir,
+            commands::update_agent_setting,
+            commands::list_mcps,
+            commands::add_mcp,
+            commands::update_mcp,
+            commands::remove_mcp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

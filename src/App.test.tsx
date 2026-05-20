@@ -39,16 +39,16 @@ describe("App routing", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders Configs on /configs", () => {
+  it("renders Skills on /context/skills", () => {
     render(
-      <MemoryRouter initialEntries={["/configs"]}>
+      <MemoryRouter initialEntries={["/context/skills"]}>
         <QueryClientProvider client={queryClient}>
           <App />
         </QueryClientProvider>
       </MemoryRouter>
     );
     expect(
-      screen.getByRole("heading", { name: "Configs" })
+      screen.getByRole("heading", { name: "Skills" })
     ).toBeInTheDocument();
   });
 

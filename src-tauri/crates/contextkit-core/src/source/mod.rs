@@ -23,7 +23,7 @@ impl SourceManager {
     }
 
     pub fn with_config(config: ConfigManager) -> Result<Self> {
-        let index = Index::load(&config.index_path())?;
+        let index = Index::load(&config)?;
         config.ensure_dirs()?;
         Ok(Self { config, index })
     }
@@ -229,7 +229,7 @@ impl SourceManager {
     }
 
     pub fn save(&self) -> Result<()> {
-        self.index.save(&self.config.index_path())
+        self.index.save(&self.config)
     }
 
     pub fn config(&self) -> &ConfigManager {

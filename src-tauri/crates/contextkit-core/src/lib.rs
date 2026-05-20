@@ -8,7 +8,7 @@ pub mod scanner;
 pub mod source;
 pub mod token;
 
-pub use agent::{AgentTool, AssignmentManager, AssignmentMechanism};
+pub use agent::{AgentTool, AssignmentMechanism};
 pub use agent::registry::AgentRegistry;
 pub use app::App;
 pub use config::ConfigManager;

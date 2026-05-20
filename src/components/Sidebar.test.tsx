@@ -13,7 +13,10 @@ describe("Sidebar", () => {
     expect(screen.getByText("ContextKit")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Dashboard/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Sources/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Configs/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Skills/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Rules/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Agents/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /MCPs/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Settings/i })).toBeInTheDocument();
   });
 

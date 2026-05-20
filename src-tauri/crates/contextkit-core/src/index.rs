@@ -1,4 +1,5 @@
 use std::path::Path;
+use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::models::{Assignment, Source};
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,18 @@ pub struct Index {
     pub version: u32,
     pub sources: Vec<Source>,
     pub assignments: Vec<Assignment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SourcesWrapper {
+    version: u32,
+    sources: Vec<Source>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AssignmentsWrapper {
+    version: u32,
+    assignments: Vec<Assignment>,
 }
 
 impl Default for Index {
@@ -27,8 +40,58 @@ impl Index {
         }
     }
 
-    /// 从文件加载索引，文件不存在则返回默认空索引
-    pub fn load(path: &Path) -> Result<Self> {
+    /// 从拆分后的多文件加载索引，自动处理旧版迁移
+    pub fn load(config: &ConfigManager) -> Result<Self> {
+        Self::maybe_migrate(config)?;
+
+        let sources = if config.sources_path().exists() {
+            let content = std::fs::read_to_string(&config.sources_path())?;
+            let wrapper: SourcesWrapper = toml::from_str(&content)
+                .map_err(ContextKitError::from)?;
+            wrapper.sources
+        } else {
+            Vec::new()
+        };
+
+        let assignments = if config.assignments_path().exists() {
+            let content = std::fs::read_to_string(&config.assignments_path())?;
+            let wrapper: AssignmentsWrapper = toml::from_str(&content)
+                .map_err(ContextKitError::from)?;
+            wrapper.assignments
+        } else {
+            Vec::new()
+        };
+
+        Ok(Self {
+            version: CURRENT_INDEX_VERSION,
+            sources,
+            assignments,
+        })
+    }
+
+    /// 保存索引到拆分后的多文件
+    pub fn save(&self, config: &ConfigManager) -> Result<()> {
+        let sources_wrapper = SourcesWrapper {
+            version: self.version,
+            sources: self.sources.clone(),
+        };
+        let assignments_wrapper = AssignmentsWrapper {
+            version: self.version,
+            assignments: self.assignments.clone(),
+        };
+
+        let sources_content = toml::to_string_pretty(&sources_wrapper)
+            .map_err(ContextKitError::from)?;
+        let assignments_content = toml::to_string_pretty(&assignments_wrapper)
+            .map_err(ContextKitError::from)?;
+
+        std::fs::write(&config.sources_path(), sources_content)?;
+        std::fs::write(&config.assignments_path(), assignments_content)?;
+        Ok(())
+    }
+
+    /// 从旧版单文件加载（兼容旧测试）
+    pub fn load_from_file(path: &Path) -> Result<Self> {
         if !path.exists() {
             return Ok(Self::new());
         }
@@ -38,14 +101,36 @@ impl Index {
         Ok(index)
     }
 
-    /// 保存索引到文件
-    pub fn save(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+    /// 检测并执行迁移：旧 index.toml → sources.toml + assignments.toml
+    fn maybe_migrate(config: &ConfigManager) -> Result<()> {
+        let old_path = config.index_path();
+        let sources_path = config.sources_path();
+        let assignments_path = config.assignments_path();
+
+        if old_path.exists() && !sources_path.exists() && !assignments_path.exists() {
+            let old_index = Self::load_from_file(&old_path)?;
+
+            let sources_wrapper = SourcesWrapper {
+                version: CURRENT_INDEX_VERSION,
+                sources: old_index.sources,
+            };
+            let assignments_wrapper = AssignmentsWrapper {
+                version: CURRENT_INDEX_VERSION,
+                assignments: old_index.assignments,
+            };
+
+            let sources_content = toml::to_string_pretty(&sources_wrapper)
+                .map_err(ContextKitError::from)?;
+            let assignments_content = toml::to_string_pretty(&assignments_wrapper)
+                .map_err(ContextKitError::from)?;
+
+            std::fs::write(&sources_path, sources_content)?;
+            std::fs::write(&assignments_path, assignments_content)?;
+
+            // 旧文件重命名备份
+            let backup_path = old_path.with_extension("toml.backup");
+            std::fs::rename(&old_path, backup_path)?;
         }
-        let content = toml::to_string_pretty(self)
-            .map_err(ContextKitError::from)?;
-        std::fs::write(path, content)?;
         Ok(())
     }
 
@@ -106,8 +191,10 @@ mod tests {
     use std::env;
     use std::path::PathBuf;
 
-    fn temp_index_path() -> PathBuf {
-        env::temp_dir().join(format!("ck-index-test-{}", std::process::id()))
+    fn temp_config(name: &str) -> ConfigManager {
+        let dir = env::temp_dir().join(format!("ck-index-test-{}", std::process::id())).join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        ConfigManager::with_dir(&dir)
     }
 
     fn dummy_source(id: &str) -> Source {
@@ -135,26 +222,64 @@ mod tests {
     }
 
     #[test]
-    fn save_and_load_roundtrip() {
-        let temp_path = temp_index_path();
-        let _ = std::fs::remove_file(&temp_path);
+    fn save_and_load_split_roundtrip() {
+        let config = temp_config("split-roundtrip");
+        config.ensure_dirs().unwrap();
+        let _ = std::fs::remove_file(config.sources_path());
+        let _ = std::fs::remove_file(config.assignments_path());
 
         let mut index = Index::new();
         index.add_source(dummy_source("abc"));
-        index.save(&temp_path).unwrap();
+        index.save(&config).unwrap();
 
-        let loaded = Index::load(&temp_path).unwrap();
+        let loaded = Index::load(&config).unwrap();
         assert_eq!(index, loaded);
 
-        let _ = std::fs::remove_file(&temp_path);
+        let _ = std::fs::remove_dir_all(config.config_dir());
     }
 
     #[test]
     fn load_returns_default_if_file_missing() {
-        let temp_path = temp_index_path().join("nonexistent").join("index.toml");
-        let index = Index::load(&temp_path).unwrap();
+        let config = temp_config("missing");
+        let index = Index::load(&config).unwrap();
         assert_eq!(index.version, 1);
         assert!(index.sources.is_empty());
+        let _ = std::fs::remove_dir_all(config.config_dir());
+    }
+
+    #[test]
+    fn migrate_old_index_toml() {
+        let config = temp_config("migrate");
+        config.ensure_dirs().unwrap();
+
+        // 创建旧版 index.toml
+        let old_index = Index {
+            version: 1,
+            sources: vec![dummy_source("old-src")],
+            assignments: vec![Assignment {
+                config_id: "cfg-1".into(),
+                agent_id: "cursor".into(),
+                project_path: None,
+                assigned_at: "2026-05-15T10:00:00Z".into(),
+            }],
+        };
+        let old_content = toml::to_string_pretty(&old_index).unwrap();
+        std::fs::write(config.index_path(), old_content).unwrap();
+
+        // 加载应触发迁移
+        let loaded = Index::load(&config).unwrap();
+        assert_eq!(loaded.sources.len(), 1);
+        assert_eq!(loaded.assignments.len(), 1);
+
+        // 验证新文件已创建
+        assert!(config.sources_path().exists());
+        assert!(config.assignments_path().exists());
+
+        // 验证旧文件已备份
+        assert!(!config.index_path().exists());
+        assert!(config.index_path().with_extension("toml.backup").exists());
+
+        let _ = std::fs::remove_dir_all(config.config_dir());
     }
 
     #[test]

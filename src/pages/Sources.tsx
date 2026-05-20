@@ -30,6 +30,7 @@ import {
   Loader2,
   Sparkles,
   HardDrive,
+  ArrowLeft,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -663,8 +664,10 @@ export default function Sources() {
                       type="button"
                       variant="outline"
                       onClick={() => setConfiguringId(null)}
+                      className="gap-1"
                     >
-                      Cancel
+                      <ArrowLeft className="w-4 h-4" />
+                      Back
                     </Button>
                     <Button
                       type="button"

@@ -9,6 +9,8 @@ import type {
   Settings,
   AgentInfo,
   AgentSetting,
+  McpConfig,
+  McpFormData,
 } from "./types";
 
 export async function invokeCommand<T>(
@@ -80,6 +82,14 @@ export const assignmentApi = {
     invokeCommand<Assignment[]>("list_assignments", { configId, agentId }),
 };
 
+// MCP management
+export const mcpApi = {
+  listMcps: () => invokeCommand<McpConfig[]>("list_mcps", {}),
+  addMcp: (data: McpFormData) => invokeCommand<void>("add_mcp", { mcp: data }),
+  updateMcp: (data: McpFormData) => invokeCommand<void>("update_mcp", { mcp: data }),
+  removeMcp: (id: string) => invokeCommand<void>("remove_mcp", { id }),
+};
+
 // Global
 export const globalApi = {
   getStats: () => invokeCommand<Stats>("get_stats", {}),
@@ -88,6 +98,6 @@ export const globalApi = {
     invokeCommand<void>("update_settings", { mode }),
   listAgents: () => invokeCommand<AgentInfo[]>("list_agents", {}),
   getAgentSettings: () => invokeCommand<AgentSetting[]>("list_agent_settings", {}),
-  updateAgentDir: (agentId: string, dir?: string) =>
-    invokeCommand<void>("update_agent_dir", { agentId, dir }),
+  updateAgentSetting: (agentId: string, dir?: string, pinned?: boolean) =>
+    invokeCommand<void>("update_agent_setting", { agentId, dir, pinned }),
 };

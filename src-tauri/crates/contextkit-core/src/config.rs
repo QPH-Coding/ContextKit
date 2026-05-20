@@ -30,6 +30,18 @@ impl ConfigManager {
         self.base_dir.join("index.toml")
     }
 
+    pub fn sources_path(&self) -> PathBuf {
+        self.base_dir.join("sources.toml")
+    }
+
+    pub fn assignments_path(&self) -> PathBuf {
+        self.base_dir.join("assignments.toml")
+    }
+
+    pub fn mcps_path(&self) -> PathBuf {
+        self.base_dir.join("mcps.toml")
+    }
+
     pub fn repos_dir(&self) -> PathBuf {
         self.base_dir.join("repos")
     }
@@ -39,7 +51,7 @@ impl ConfigManager {
     }
 
     /// 从 settings.toml 加载配置
-    pub fn load_settings(&self) -> Result<Option<(crate::models::SyncMode, std::collections::HashMap<String, String>)>> {
+    pub fn load_settings(&self) -> Result<Option<(crate::models::SyncMode, std::collections::HashMap<String, String>, Vec<String>)>> {
         let path = self.settings_path();
         if !path.exists() {
             return Ok(None);
@@ -51,7 +63,7 @@ impl ConfigManager {
             "reference" => Some(crate::models::SyncMode::Reference),
             "copy" => Some(crate::models::SyncMode::Copy),
             _ => None,
-        });
+        }).unwrap_or(crate::models::SyncMode::Reference);
 
         let agent_dirs = value.get("agent_dirs")
             .and_then(|v| v.as_table())
@@ -62,11 +74,20 @@ impl ConfigManager {
             })
             .unwrap_or_default();
 
-        Ok(mode.map(|m| (m, agent_dirs)))
+        let pinned_agents = value.get("pinned_agents")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(Some((mode, agent_dirs, pinned_agents)))
     }
 
     /// 保存配置到 settings.toml
-    pub fn save_settings(&self, mode: crate::models::SyncMode, agent_dirs: &std::collections::HashMap<String, String>) -> Result<()> {
+    pub fn save_settings(&self, mode: crate::models::SyncMode, agent_dirs: &std::collections::HashMap<String, String>, pinned_agents: &[String]) -> Result<()> {
         let path = self.settings_path();
         let mode_str = match mode {
             crate::models::SyncMode::Reference => "reference",
@@ -80,6 +101,11 @@ impl ConfigManager {
             for (k, v) in agent_dirs {
                 content.push_str(&format!("{} = \"{}\"\n", k, v.replace('\\', "\\\\").replace('"', "\\\"")));
             }
+        }
+
+        if !pinned_agents.is_empty() {
+            let agents_json = serde_json::to_string(pinned_agents).unwrap();
+            content.push_str(&format!("\npinned_agents = {}\n", agents_json));
         }
 
         std::fs::write(&path, content)?;
@@ -119,6 +145,9 @@ mod tests {
     fn subpaths_are_correct() {
         let mgr = ConfigManager::with_dir("/tmp/ck");
         assert_eq!(mgr.index_path(), PathBuf::from("/tmp/ck/index.toml"));
+        assert_eq!(mgr.sources_path(), PathBuf::from("/tmp/ck/sources.toml"));
+        assert_eq!(mgr.assignments_path(), PathBuf::from("/tmp/ck/assignments.toml"));
+        assert_eq!(mgr.mcps_path(), PathBuf::from("/tmp/ck/mcps.toml"));
         assert_eq!(mgr.repos_dir(), PathBuf::from("/tmp/ck/repos"));
         assert_eq!(mgr.settings_path(), PathBuf::from("/tmp/ck/settings.toml"));
     }

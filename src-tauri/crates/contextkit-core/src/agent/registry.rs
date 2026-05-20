@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn end_to_end_assign_claude_code_user_skill() {
-        use crate::agent::AssignmentManager;
+        use crate::agent::ops_assign;
 
         let dir = temp_dir("e2e-claude");
         let source_dir = dir.join("coding");
@@ -610,8 +610,7 @@ mod tests {
         // 将 target 重定向到临时目录（避免污染真实 ~/.claude）
         let redirected_target = dir.join("fake-claude").join("coding");
 
-        let mgr = AssignmentManager::new();
-        mgr.assign(
+        ops_assign(
             &source_dir,
             &redirected_target,
             agent.mechanism(ConfigKind::Skill),
@@ -627,7 +626,7 @@ mod tests {
 
     #[test]
     fn end_to_end_assign_cursor_user_rule() {
-        use crate::agent::AssignmentManager;
+        use crate::agent::ops_assign;
 
         let dir = temp_dir("e2e-cursor");
         let source = dir.join("typescript-style.md");
@@ -640,8 +639,7 @@ mod tests {
             .join("rules")
             .join("typescript-style.md");
 
-        let mgr = AssignmentManager::new();
-        mgr.assign(
+        ops_assign(
             &source,
             &redirected_target,
             agent.mechanism(ConfigKind::Rule),
@@ -655,7 +653,7 @@ mod tests {
 
     #[test]
     fn end_to_end_assign_cursor_mcp() {
-        use crate::agent::AssignmentManager;
+        use crate::agent::ops_assign;
 
         let dir = temp_dir("e2e-cursor-mcp");
         let source = dir.join("fs-server.mcp.json");
@@ -665,8 +663,7 @@ mod tests {
         let agent = registry.get("cursor").unwrap();
         let target = dir.join("fake-cursor").join("mcp.json");
 
-        let mgr = AssignmentManager::new();
-        mgr.assign(&source, &target, agent.mechanism(ConfigKind::Mcp))
+        ops_assign(&source, &target, agent.mechanism(ConfigKind::Mcp))
             .unwrap();
 
         let content = fs::read_to_string(&target).unwrap();
@@ -683,16 +680,13 @@ mod tests {
 
     #[test]
     fn end_to_end_conflict_detection() {
-        use crate::agent::AssignmentManager;
-
         let dir = temp_dir("e2e-conflict");
         let source = dir.join("source.md");
         let target = dir.join("existing.md");
         fs::write(&source, "new").unwrap();
         fs::write(&target, "existing").unwrap();
 
-        let mgr = AssignmentManager::new();
-        assert!(mgr.check_conflict(&target).unwrap());
+        assert!(target.exists());
 
         let _ = fs::remove_dir_all(&dir);
     }

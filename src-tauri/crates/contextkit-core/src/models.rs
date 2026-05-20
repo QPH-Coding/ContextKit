@@ -101,6 +101,43 @@ pub struct Settings {
     pub config_dir: PathBuf,
     pub default_sync_mode: SyncMode,
     pub agent_dirs: HashMap<String, String>,
+    pub pinned_agents: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "kebab-case")]
+pub enum McpTransport {
+    Stdio,
+    Sse,
+    StreamableHttp,
+}
+
+impl Default for McpTransport {
+    fn default() -> Self {
+        McpTransport::Stdio
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub transport: McpTransport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    // stdio fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+    // sse / streamable-http fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
