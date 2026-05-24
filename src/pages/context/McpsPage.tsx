@@ -15,6 +15,14 @@ import {
   SheetHeader,
 } from "@/components/ui/sheet";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Trash2,
   Search,
   Package,
@@ -25,7 +33,7 @@ import {
 import McpIcon from "@/components/McpIcon";
 import McpForm from "@/components/context/McpForm";
 import McpFormDialog from "@/components/context/McpFormDialog";
-import type { McpConfig } from "@/lib/types";
+import type { McpConfig, AssignmentPreview } from "@/lib/types";
 import AgentIcon from "@/components/AgentIcon";
 
 export default function McpsPage() {
@@ -37,6 +45,12 @@ export default function McpsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [pendingAssign, setPendingAssign] = useState<{
+    configId: string;
+    agentId: string;
+    preview: AssignmentPreview;
+  } | null>(null);
 
   const {
     data: mcps,
@@ -65,6 +79,14 @@ export default function McpsPage() {
     queryKey: ["assignments"],
     queryFn: () => assignmentApi.listAssignments(),
     retry: false,
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: (vars: { configId: string; agentId: string }) =>
+      assignmentApi.previewAssignConfig(vars.configId, vars.agentId, "user", undefined),
+    onError: (err) => {
+      toast.error(errorMessage(err));
+    },
   });
 
   const assignMutation = useMutation({
@@ -188,6 +210,31 @@ export default function McpsPage() {
   const handleCloseDetail = () => {
     setDetailMcp(null);
     setIsEditing(false);
+  };
+
+  const handleRequestAssign = async (configId: string, agentId: string) => {
+    try {
+      const preview = await previewMutation.mutateAsync({ configId, agentId });
+      if (preview.will_modify_existing) {
+        setPendingAssign({ configId, agentId, preview });
+        setConfirmDialogOpen(true);
+      } else {
+        assignMutation.mutate({ configId, agentId });
+      }
+    } catch {
+      // error handled by previewMutation.onError
+    }
+  };
+
+  const handleConfirmAssign = () => {
+    if (pendingAssign) {
+      assignMutation.mutate({
+        configId: pendingAssign.configId,
+        agentId: pendingAssign.agentId,
+      });
+      setConfirmDialogOpen(false);
+      setPendingAssign(null);
+    }
   };
 
   const handleOpenAdd = () => {
@@ -375,13 +422,12 @@ export default function McpsPage() {
                               configId: mcp.id,
                               agentId: agent.id,
                             })
-                          : assignMutation.mutate({
-                              configId: mcp.id,
-                              agentId: agent.id,
-                            });
+                          : handleRequestAssign(mcp.id, agent.id);
                       }}
                       disabled={
-                        assignMutation.isPending || unassignMutation.isPending
+                        assignMutation.isPending ||
+                        unassignMutation.isPending ||
+                        previewMutation.isPending
                       }
                       className={`text-xs disabled:opacity-50 ${
                         assigned
@@ -543,6 +589,45 @@ export default function McpsPage() {
           </ScrollArea>
         </SheetContent>
       </Sheet>
+
+      {/* Confirm Modify Dialog */}
+      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认修改文件</DialogTitle>
+            <DialogDescription>
+              此操作将修改以下文件以添加 MCP 服务器配置
+            </DialogDescription>
+          </DialogHeader>
+          {pendingAssign && (
+            <div className="space-y-3">
+              <code className="block p-3 bg-muted rounded-md text-xs font-mono break-all">
+                {pendingAssign.preview.target_path}
+              </code>
+              <p className="text-sm text-muted-foreground">
+                机制: {" "}
+                {pendingAssign.preview.mechanism === "json_inject"
+                  ? "JSON 注入"
+                  : pendingAssign.preview.mechanism === "toml_inject"
+                  ? "TOML 注入"
+                  : pendingAssign.preview.mechanism}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button type="button" onClick={handleConfirmAssign}>
+              确认安装
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Dialog */}
       <McpFormDialog

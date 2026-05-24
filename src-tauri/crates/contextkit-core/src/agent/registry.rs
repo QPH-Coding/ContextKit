@@ -63,7 +63,7 @@ impl AgentTool for ClaudeCode {
     }
 
     fn supported_kinds(&self) -> &[ConfigKind] {
-        &[ConfigKind::Skill, ConfigKind::Rule, ConfigKind::Agent]
+        &[ConfigKind::Skill, ConfigKind::Rule, ConfigKind::Agent, ConfigKind::Mcp]
     }
 
     fn supports_scope(&self, scope: PathScope) -> bool {
@@ -89,6 +89,10 @@ impl AgentTool for ClaudeCode {
                     PathScope::Project => project_dir.map(|p| p.join(".claude").join(parent)),
                 }
             }
+            ConfigKind::Mcp => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".claude.json")),
+                PathScope::Project => project_dir.map(|p| p.join(".mcp.json")),
+            },
             _ => match scope {
                 PathScope::User => dirs::home_dir().map(|h| h.join(".claude").join(filename)),
                 PathScope::Project => project_dir.map(|p| p.join(".claude").join(filename)),
@@ -96,8 +100,11 @@ impl AgentTool for ClaudeCode {
         }
     }
 
-    fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
-        AssignmentMechanism::Symlink
+    fn mechanism(&self, kind: ConfigKind) -> AssignmentMechanism {
+        match kind {
+            ConfigKind::Mcp => AssignmentMechanism::JsonInject,
+            _ => AssignmentMechanism::Symlink,
+        }
     }
 
     fn default_home_dir(&self) -> Option<PathBuf> {
@@ -117,7 +124,7 @@ impl AgentTool for Codex {
     }
 
     fn supported_kinds(&self) -> &[ConfigKind] {
-        &[ConfigKind::Skill, ConfigKind::Rule, ConfigKind::Agent]
+        &[ConfigKind::Skill, ConfigKind::Rule, ConfigKind::Agent, ConfigKind::Mcp]
     }
 
     fn supports_scope(&self, scope: PathScope) -> bool {
@@ -139,19 +146,30 @@ impl AgentTool for Codex {
             ConfigKind::Skill => {
                 let parent = source_path.parent()?.file_name()?.to_str()?;
                 match scope {
-                    PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join(parent)),
-                    PathScope::Project => project_dir.map(|p| p.join(".codex").join(parent)),
+                    PathScope::User => dirs::home_dir().map(|h| h.join(".agents").join("skills").join(parent)),
+                    PathScope::Project => project_dir.map(|p| p.join(".agents").join("skills").join(parent)),
                 }
             }
-            _ => match scope {
-                PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join(filename)),
-                PathScope::Project => project_dir.map(|p| p.join(".codex").join(filename)),
-            }
+            ConfigKind::Rule => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join("rules").join(filename)),
+                PathScope::Project => project_dir.map(|p| p.join(".codex").join("rules").join(filename)),
+            },
+            ConfigKind::Agent => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join("agents").join(filename)),
+                PathScope::Project => project_dir.map(|p| p.join(".codex").join("agents").join(filename)),
+            },
+            ConfigKind::Mcp => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".codex").join("config.toml")),
+                PathScope::Project => project_dir.map(|p| p.join(".codex").join("config.toml")),
+            },
         }
     }
 
-    fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
-        AssignmentMechanism::Symlink
+    fn mechanism(&self, kind: ConfigKind) -> AssignmentMechanism {
+        match kind {
+            ConfigKind::Mcp => AssignmentMechanism::TomlInject,
+            _ => AssignmentMechanism::Symlink,
+        }
     }
 
     fn default_home_dir(&self) -> Option<PathBuf> {
@@ -228,34 +246,44 @@ impl AgentTool for Kimi {
     }
 
     fn supported_kinds(&self) -> &[ConfigKind] {
-        &[ConfigKind::Skill]
+        &[ConfigKind::Skill, ConfigKind::Mcp]
     }
 
     fn supports_scope(&self, scope: PathScope) -> bool {
-        matches!(scope, PathScope::User)
+        matches!(scope, PathScope::User | PathScope::Project)
     }
 
     fn target_path(
         &self,
         kind: ConfigKind,
         scope: PathScope,
-        _project_dir: Option<&Path>,
+        project_dir: Option<&Path>,
         source_path: &Path,
     ) -> Option<PathBuf> {
         if !self.supported_kinds().contains(&kind) {
             return None;
         }
-        let parent = source_path.parent()?.file_name()?.to_str()?;
-        match scope {
-            PathScope::User => {
-                dirs::home_dir().map(|h| h.join(".kimi").join("skills").join(parent))
+        match kind {
+            ConfigKind::Skill => {
+                let parent = source_path.parent()?.file_name()?.to_str()?;
+                match scope {
+                    PathScope::User => dirs::home_dir().map(|h| h.join(".kimi").join("skills").join(parent)),
+                    PathScope::Project => project_dir.map(|p| p.join(".kimi").join("skills").join(parent)),
+                }
             }
-            PathScope::Project => None,
+            ConfigKind::Mcp => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".kimi").join("mcp.json")),
+                PathScope::Project => None,
+            },
+            _ => None,
         }
     }
 
-    fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
-        AssignmentMechanism::Symlink
+    fn mechanism(&self, kind: ConfigKind) -> AssignmentMechanism {
+        match kind {
+            ConfigKind::Mcp => AssignmentMechanism::JsonInject,
+            _ => AssignmentMechanism::Symlink,
+        }
     }
 
     fn default_home_dir(&self) -> Option<PathBuf> {
@@ -275,35 +303,56 @@ impl AgentTool for CodeBuddy {
     }
 
     fn supported_kinds(&self) -> &[ConfigKind] {
-        &[ConfigKind::Skill, ConfigKind::Rule, ConfigKind::Agent]
+        &[ConfigKind::Skill, ConfigKind::Rule, ConfigKind::Agent, ConfigKind::Mcp]
     }
 
-    fn supports_scope(&self, _scope: PathScope) -> bool {
-        // CodeBuddy 只支持用户自定义路径，默认无固定路径
-        // 返回 true 表示理论上支持，但 target_path 默认返回 None
-        true
+    fn supports_scope(&self, scope: PathScope) -> bool {
+        matches!(scope, PathScope::User | PathScope::Project)
     }
 
     fn target_path(
         &self,
         kind: ConfigKind,
-        _scope: PathScope,
-        _project_dir: Option<&Path>,
-        _source_path: &Path,
+        scope: PathScope,
+        project_dir: Option<&Path>,
+        source_path: &Path,
     ) -> Option<PathBuf> {
         if !self.supported_kinds().contains(&kind) {
             return None;
         }
-        // CodeBuddy 默认无固定路径，需用户自定义
-        None
+        let filename = source_path.file_name()?.to_str()?;
+        match kind {
+            ConfigKind::Skill => {
+                let parent = source_path.parent()?.file_name()?.to_str()?;
+                match scope {
+                    PathScope::User => dirs::home_dir().map(|h| h.join(".codebuddy").join("skills").join(parent)),
+                    PathScope::Project => project_dir.map(|p| p.join(".codebuddy").join("skills").join(parent)),
+                }
+            }
+            ConfigKind::Rule => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".codebuddy").join("rules").join(filename)),
+                PathScope::Project => project_dir.map(|p| p.join(".codebuddy").join("rules").join(filename)),
+            },
+            ConfigKind::Agent => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".codebuddy").join("agents").join(filename)),
+                PathScope::Project => project_dir.map(|p| p.join(".codebuddy").join("agents").join(filename)),
+            },
+            ConfigKind::Mcp => match scope {
+                PathScope::User => dirs::home_dir().map(|h| h.join(".codebuddy").join("mcp.json")),
+                PathScope::Project => project_dir.map(|p| p.join(".codebuddy").join("mcp.json")),
+            },
+        }
     }
 
-    fn mechanism(&self, _kind: ConfigKind) -> AssignmentMechanism {
-        AssignmentMechanism::Symlink
+    fn mechanism(&self, kind: ConfigKind) -> AssignmentMechanism {
+        match kind {
+            ConfigKind::Mcp => AssignmentMechanism::JsonInject,
+            _ => AssignmentMechanism::Symlink,
+        }
     }
 
     fn default_home_dir(&self) -> Option<PathBuf> {
-        None
+        dirs::home_dir().map(|h| h.join(".codebuddy"))
     }
 }
 
@@ -438,13 +487,128 @@ mod tests {
     }
 
     #[test]
-    fn codex_user_target_path() {
+    fn claude_code_user_mcp_target_path() {
+        let agent = ClaudeCode;
+        let source = Path::new("/tmp/mcp/my-mcp.json");
+        let target = agent
+            .target_path(ConfigKind::Mcp, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".claude.json"));
+    }
+
+    #[test]
+    fn claude_code_project_mcp_target_path() {
+        let agent = ClaudeCode;
+        let source = Path::new("/tmp/mcp/my-mcp.json");
+        let project = Path::new("/projects/myapp");
+        let target = agent
+            .target_path(ConfigKind::Mcp, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.mcp.json"));
+    }
+
+    #[test]
+    fn claude_code_mechanism() {
+        let agent = ClaudeCode;
+        assert_eq!(agent.mechanism(ConfigKind::Skill), AssignmentMechanism::Symlink);
+        assert_eq!(agent.mechanism(ConfigKind::Mcp), AssignmentMechanism::JsonInject);
+    }
+
+    #[test]
+    fn codex_user_rule_target_path() {
         let agent = Codex;
         let source = Path::new("/tmp/rules/style.md");
         let target = agent
             .target_path(ConfigKind::Rule, PathScope::User, None, source)
             .unwrap();
-        assert_eq!(target, home_dir().join(".codex/style.md"));
+        assert_eq!(target, home_dir().join(".codex/rules/style.md"));
+    }
+
+    #[test]
+    fn codex_project_rule_target_path() {
+        let agent = Codex;
+        let source = Path::new("/tmp/rules/style.md");
+        let project = Path::new("/projects/myapp");
+        let target = agent
+            .target_path(ConfigKind::Rule, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.codex/rules/style.md"));
+    }
+
+    #[test]
+    fn codex_user_skill_target_path() {
+        let agent = Codex;
+        let source = Path::new("/tmp/skills/coding/SKILL.md");
+        let target = agent
+            .target_path(ConfigKind::Skill, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".agents/skills/coding"));
+    }
+
+    #[test]
+    fn codex_project_skill_target_path() {
+        let agent = Codex;
+        let source = Path::new("/tmp/skills/coding/SKILL.md");
+        let project = Path::new("/projects/myapp");
+        let target = agent
+            .target_path(ConfigKind::Skill, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.agents/skills/coding"));
+    }
+
+    #[test]
+    fn codex_user_agent_target_path() {
+        let agent = Codex;
+        let source = Path::new("/tmp/agents/reviewer.toml");
+        let target = agent
+            .target_path(ConfigKind::Agent, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".codex/agents/reviewer.toml"));
+    }
+
+    #[test]
+    fn codex_project_agent_target_path() {
+        let agent = Codex;
+        let source = Path::new("/tmp/agents/reviewer.toml");
+        let project = Path::new("/projects/myapp");
+        let target = agent
+            .target_path(ConfigKind::Agent, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.codex/agents/reviewer.toml"));
+    }
+
+    #[test]
+    fn codex_user_mcp_target_path() {
+        let agent = Codex;
+        let source = Path::new("/tmp/mcp/my-mcp.json");
+        let target = agent
+            .target_path(ConfigKind::Mcp, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".codex/config.toml"));
+    }
+
+    #[test]
+    fn codex_project_mcp_target_path() {
+        let agent = Codex;
+        let source = Path::new("/tmp/mcp/my-mcp.json");
+        let project = Path::new("/projects/myapp");
+        let target = agent
+            .target_path(ConfigKind::Mcp, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.codex/config.toml"));
+    }
+
+    #[test]
+    fn codex_mechanism() {
+        let agent = Codex;
+        assert_eq!(
+            agent.mechanism(ConfigKind::Skill),
+            AssignmentMechanism::Symlink
+        );
+        assert_eq!(
+            agent.mechanism(ConfigKind::Mcp),
+            AssignmentMechanism::TomlInject
+        );
     }
 
     #[test]
@@ -514,28 +678,113 @@ mod tests {
     }
 
     #[test]
-    fn kimi_project_target_path_returns_none() {
+    fn kimi_project_skill_target_path() {
         let agent = Kimi;
         let source = Path::new("/tmp/skills/coding/SKILL.md");
         let project = Path::new("/projects/myapp");
-        let target =
-            agent.target_path(ConfigKind::Skill, PathScope::Project, Some(project), source);
-        assert!(target.is_none());
+        let target = agent
+            .target_path(ConfigKind::Skill, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.kimi/skills/coding"));
     }
 
     #[test]
-    fn kimi_only_supports_skill() {
+    fn kimi_user_mcp_target_path() {
+        let agent = Kimi;
+        let source = Path::new("/tmp/mcp/my-mcp.json");
+        let target = agent
+            .target_path(ConfigKind::Mcp, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".kimi/mcp.json"));
+    }
+
+    #[test]
+    fn kimi_supported_kinds() {
         let agent = Kimi;
         assert!(agent.supported_kinds().contains(&ConfigKind::Skill));
+        assert!(agent.supported_kinds().contains(&ConfigKind::Mcp));
         assert!(!agent.supported_kinds().contains(&ConfigKind::Rule));
     }
 
     #[test]
-    fn codebuddy_default_no_target_path() {
+    fn codebuddy_user_skill_target_path() {
         let agent = CodeBuddy;
         let source = Path::new("/tmp/skills/coding/SKILL.md");
-        let target = agent.target_path(ConfigKind::Skill, PathScope::User, None, source);
-        assert!(target.is_none());
+        let target = agent
+            .target_path(ConfigKind::Skill, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".codebuddy/skills/coding"));
+    }
+
+    #[test]
+    fn codebuddy_project_skill_target_path() {
+        let agent = CodeBuddy;
+        let source = Path::new("/tmp/skills/coding/SKILL.md");
+        let project = Path::new("/projects/myapp");
+        let target = agent
+            .target_path(ConfigKind::Skill, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.codebuddy/skills/coding"));
+    }
+
+    #[test]
+    fn codebuddy_user_rule_target_path() {
+        let agent = CodeBuddy;
+        let source = Path::new("/tmp/rules/style.mdc");
+        let target = agent
+            .target_path(ConfigKind::Rule, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".codebuddy/rules/style.mdc"));
+    }
+
+    #[test]
+    fn codebuddy_user_agent_target_path() {
+        let agent = CodeBuddy;
+        let source = Path::new("/tmp/agents/reviewer.md");
+        let target = agent
+            .target_path(ConfigKind::Agent, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".codebuddy/agents/reviewer.md"));
+    }
+
+    #[test]
+    fn codebuddy_user_mcp_target_path() {
+        let agent = CodeBuddy;
+        let source = Path::new("/tmp/mcp/my-mcp.json");
+        let target = agent
+            .target_path(ConfigKind::Mcp, PathScope::User, None, source)
+            .unwrap();
+        assert_eq!(target, home_dir().join(".codebuddy/mcp.json"));
+    }
+
+    #[test]
+    fn codebuddy_project_mcp_target_path() {
+        let agent = CodeBuddy;
+        let source = Path::new("/tmp/mcp/my-mcp.json");
+        let project = Path::new("/projects/myapp");
+        let target = agent
+            .target_path(ConfigKind::Mcp, PathScope::Project, Some(project), source)
+            .unwrap();
+        assert_eq!(target, PathBuf::from("/projects/myapp/.codebuddy/mcp.json"));
+    }
+
+    #[test]
+    fn codebuddy_mechanism() {
+        let agent = CodeBuddy;
+        assert_eq!(
+            agent.mechanism(ConfigKind::Skill),
+            AssignmentMechanism::Symlink
+        );
+        assert_eq!(
+            agent.mechanism(ConfigKind::Mcp),
+            AssignmentMechanism::JsonInject
+        );
+    }
+
+    #[test]
+    fn codebuddy_default_home_dir() {
+        let agent = CodeBuddy;
+        assert_eq!(agent.default_home_dir().unwrap(), home_dir().join(".codebuddy"));
     }
 
     #[test]
@@ -572,7 +821,7 @@ mod tests {
         assert!(ClaudeCode.supports_scope(PathScope::User));
         assert!(ClaudeCode.supports_scope(PathScope::Project));
         assert!(Kimi.supports_scope(PathScope::User));
-        assert!(!Kimi.supports_scope(PathScope::Project));
+        assert!(Kimi.supports_scope(PathScope::Project));
     }
 
     #[test]

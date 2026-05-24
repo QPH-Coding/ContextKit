@@ -36,6 +36,12 @@ export interface Assignment {
   assigned_at: string;
 }
 
+export interface AssignmentPreview {
+  target_path: string;
+  will_modify_existing: boolean;
+  mechanism: string;
+}
+
 export interface Stats {
   source_count: number;
   total_configs: number;

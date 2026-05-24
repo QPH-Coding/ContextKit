@@ -10,6 +10,7 @@ pub enum AssignmentMechanism {
     Symlink,
     Copy,
     JsonInject,
+    TomlInject,
 }
 
 /// Agent 工具抽象
@@ -77,6 +78,40 @@ pub trait AgentTool: Send + Sync {
 
                 ops_assign_json_server_value(target, &name, config)
             }
+            AssignmentMechanism::TomlInject => {
+                let content = std::fs::read_to_string(source)?;
+                let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+                    ContextKitError::AssignmentConflict {
+                        message: format!("Invalid MCP JSON in source: {e}"),
+                    }
+                })?;
+
+                let name = server_name.map(|s| s.to_string()).unwrap_or_else(|| {
+                    source
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(|s| {
+                            if s.ends_with(".mcp") {
+                                s.trim_end_matches(".mcp").to_string()
+                            } else {
+                                s.to_string()
+                            }
+                        })
+                        .unwrap_or_else(|| "unknown".to_string())
+                });
+
+                let config = if let Some(servers) = value.get("mcpServers").and_then(|v| v.as_object()) {
+                    if let Some(sn) = server_name {
+                        servers.get(sn).cloned().unwrap_or(value.clone())
+                    } else {
+                        servers.values().next().cloned().unwrap_or(value.clone())
+                    }
+                } else {
+                    value.clone()
+                };
+
+                ops_assign_toml_server_value(target, &name, config)
+            }
         }
     }
 
@@ -97,6 +132,7 @@ pub(crate) fn ops_assign(source_path: &Path, target: &Path, mechanism: Assignmen
         AssignmentMechanism::Symlink => ops_assign_symlink(source_path, target),
         AssignmentMechanism::Copy => ops_assign_copy(source_path, target),
         AssignmentMechanism::JsonInject => ops_assign_json_inject(source_path, target),
+        AssignmentMechanism::TomlInject => ops_assign_toml_inject(source_path, target),
     }
 }
 
@@ -246,6 +282,12 @@ pub(crate) fn ops_unassign(target: &Path, mechanism: AssignmentMechanism, server
             })?;
             ops_unassign_json_inject(target, name)
         }
+        AssignmentMechanism::TomlInject => {
+            let name = server_name.ok_or_else(|| {
+                ContextKitError::InvalidPath("MCP unassign requires server_name".into())
+            })?;
+            ops_unassign_toml_inject(target, name)
+        }
     }
 }
 
@@ -263,6 +305,155 @@ pub(crate) fn ops_unassign_json_inject(target: &Path, server_name: &str) -> Resu
     if let Some(servers) = value.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
         servers.remove(server_name);
         std::fs::write(target, serde_json::to_string_pretty(&value)?)?;
+    }
+
+    Ok(())
+}
+
+// === TOML 注入机制（用于 Codex 等 TOML 配置文件的 MCP） ===
+
+pub(crate) fn ops_assign_toml_inject(source: &Path, target: &Path) -> Result<PathBuf> {
+    let source_content = std::fs::read_to_string(source)?;
+    let source_value: serde_json::Value =
+        serde_json::from_str(&source_content).map_err(|e| ContextKitError::AssignmentConflict {
+            message: format!("Invalid MCP JSON in source: {e}"),
+        })?;
+
+    let server_name = source
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| {
+            if s.ends_with(".mcp") {
+                s.trim_end_matches(".mcp").to_string()
+            } else {
+                s.to_string()
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let server_config =
+        if let Some(servers) = source_value.get("mcpServers").and_then(|v| v.as_object()) {
+            servers
+                .values()
+                .next()
+                .cloned()
+                .unwrap_or(source_value.clone())
+        } else {
+            source_value.clone()
+        };
+
+    ops_assign_toml_server_value(target, &server_name, server_config)
+}
+
+fn json_value_to_toml_item(value: &serde_json::Value) -> toml_edit::Item {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut table = toml_edit::Table::new();
+            for (k, v) in map {
+                table.insert(k, json_value_to_toml_item(v));
+            }
+            toml_edit::Item::Table(table)
+        }
+        serde_json::Value::Array(arr) => {
+            let mut array = toml_edit::Array::default();
+            for v in arr {
+                array.push(json_value_to_toml_value(v));
+            }
+            toml_edit::Item::Value(toml_edit::Value::Array(array))
+        }
+        serde_json::Value::String(s) => toml_edit::Item::Value(toml_edit::Value::from(s.as_str())),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                toml_edit::Item::Value(toml_edit::Value::from(i))
+            } else if let Some(f) = n.as_f64() {
+                toml_edit::Item::Value(toml_edit::Value::from(f))
+            } else {
+                toml_edit::Item::Value(toml_edit::Value::from(n.to_string()))
+            }
+        }
+        serde_json::Value::Bool(b) => toml_edit::Item::Value(toml_edit::Value::from(*b)),
+        serde_json::Value::Null => toml_edit::Item::None,
+    }
+}
+
+fn json_value_to_toml_value(value: &serde_json::Value) -> toml_edit::Value {
+    match value {
+        serde_json::Value::String(s) => toml_edit::Value::from(s.as_str()),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                toml_edit::Value::from(i)
+            } else if let Some(f) = n.as_f64() {
+                toml_edit::Value::from(f)
+            } else {
+                toml_edit::Value::from(n.to_string())
+            }
+        }
+        serde_json::Value::Bool(b) => toml_edit::Value::from(*b),
+        serde_json::Value::Array(arr) => {
+            let mut array = toml_edit::Array::default();
+            for v in arr {
+                array.push(json_value_to_toml_value(v));
+            }
+            toml_edit::Value::Array(array)
+        }
+        serde_json::Value::Null => toml_edit::Value::String(toml_edit::Formatted::new(String::new())),
+        serde_json::Value::Object(map) => {
+            let mut table = toml_edit::InlineTable::default();
+            for (k, v) in map {
+                table.insert(k, json_value_to_toml_value(v));
+            }
+            toml_edit::Value::InlineTable(table)
+        }
+    }
+}
+
+pub(crate) fn ops_assign_toml_server_value(
+    target: &Path,
+    server_name: &str,
+    server_config: serde_json::Value,
+) -> Result<PathBuf> {
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut doc = if target.exists() {
+        let content = std::fs::read_to_string(target)?;
+        content.parse::<toml_edit::Document>().map_err(|e| ContextKitError::AssignmentConflict {
+            message: format!("Invalid TOML in target: {e}"),
+        })?
+    } else {
+        toml_edit::Document::new()
+    };
+
+    // Check for duplicate
+    if let Some(toml_edit::Item::Table(mcp_servers)) = doc.get("mcp_servers") {
+        if mcp_servers.get(server_name).is_some() {
+            return Err(ContextKitError::AssignmentConflict {
+                message: format!("MCP server already exists in TOML: {server_name}"),
+            });
+        }
+    }
+
+    let table = json_value_to_toml_item(&server_config);
+    doc["mcp_servers"][server_name] = table;
+
+    std::fs::write(target, doc.to_string())?;
+    Ok(target.to_path_buf())
+}
+
+pub(crate) fn ops_unassign_toml_inject(target: &Path, server_name: &str) -> Result<()> {
+    if !target.exists() {
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(target)?;
+    let mut doc = content.parse::<toml_edit::Document>().map_err(|e| ContextKitError::AssignmentConflict {
+        message: format!("Invalid TOML: {e}"),
+    })?;
+
+    if let Some(toml_edit::Item::Table(mcp_servers)) = doc.get_mut("mcp_servers") {
+        mcp_servers.remove(server_name);
+        std::fs::write(target, doc.to_string())?;
     }
 
     Ok(())

@@ -28,6 +28,7 @@ pub fn run() {
             commands::sync_source,
             commands::list_configs,
             commands::get_config,
+            commands::preview_assign_config,
             commands::assign_config,
             commands::unassign_config,
             commands::list_assignments,

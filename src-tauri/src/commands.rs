@@ -1,6 +1,6 @@
 use contextkit_core::app::App;
 use contextkit_core::models::{
-    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, McpConfig, PathScope,
+    AgentInfo, AgentSetting, Assignment, AssignmentPreview, ConfigDetail, ConfigKind, ConfigSummary, DirNode, McpConfig, PathScope,
     Settings, Source, Stats, SyncMode,
 };
 use std::sync::Mutex;
@@ -125,6 +125,20 @@ pub fn get_config(state: State<AppState>, id: String) -> Result<ConfigDetail, St
 }
 
 // === Assignment 管理 ===
+
+#[tauri::command]
+pub async fn preview_assign_config(
+    state: State<'_, AppState>,
+    config_id: String,
+    agent_id: String,
+    scope: PathScope,
+    project_path: Option<String>,
+) -> Result<AssignmentPreview, String> {
+    let app = state.app.lock().map_err(|e| e.to_string())?;
+    let project = project_path.as_deref().map(std::path::Path::new);
+    app.preview_assign_config(&config_id, &agent_id, scope, project)
+        .map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub async fn assign_config(

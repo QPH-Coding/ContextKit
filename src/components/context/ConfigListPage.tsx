@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { configApi, assignmentApi, globalApi } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
 import { errorMessage } from "@/lib/utils";
-import type { ConfigSummary, AgentInfo, ConfigDetail } from "@/lib/types";
+import type { ConfigSummary, AgentInfo, ConfigDetail, AssignmentPreview } from "@/lib/types";
 import AgentIcon from "@/components/AgentIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,14 @@ import {
   SheetContent,
   SheetHeader,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -67,6 +75,12 @@ export default function ConfigListPage({ kind, title }: ConfigListPageProps) {
   const [batchMode, setBatchMode] = useState(false);
   const [selectedConfigs, setSelectedConfigs] = useState<Set<string>>(new Set());
   const [batchAgents, setBatchAgents] = useState<Set<string>>(new Set());
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [pendingAssign, setPendingAssign] = useState<{
+    configId: string;
+    agentId: string;
+    preview: AssignmentPreview;
+  } | null>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
 
   const queryClient = useQueryClient();
@@ -121,6 +135,14 @@ export default function ConfigListPage({ kind, title }: ConfigListPageProps) {
     queryKey: ["assignments"],
     queryFn: () => assignmentApi.listAssignments(),
     retry: false,
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: (vars: { configId: string; agentId: string }) =>
+      assignmentApi.previewAssignConfig(vars.configId, vars.agentId, "user", undefined),
+    onError: (err) => {
+      toast.error(errorMessage(err));
+    },
   });
 
   const assignMutation = useMutation({
@@ -254,6 +276,31 @@ export default function ConfigListPage({ kind, title }: ConfigListPageProps) {
       else next.add(agentId);
       return next;
     });
+  };
+
+  const handleRequestAssign = async (configId: string, agentId: string) => {
+    try {
+      const preview = await previewMutation.mutateAsync({ configId, agentId });
+      if (preview.will_modify_existing) {
+        setPendingAssign({ configId, agentId, preview });
+        setConfirmDialogOpen(true);
+      } else {
+        assignMutation.mutate({ configId, agentId });
+      }
+    } catch {
+      // error handled by previewMutation.onError
+    }
+  };
+
+  const handleConfirmAssign = () => {
+    if (pendingAssign) {
+      assignMutation.mutate({
+        configId: pendingAssign.configId,
+        agentId: pendingAssign.agentId,
+      });
+      setConfirmDialogOpen(false);
+      setPendingAssign(null);
+    }
   };
 
   const handleBatchInstall = () => {
@@ -728,14 +775,12 @@ export default function ConfigListPage({ kind, title }: ConfigListPageProps) {
                                             configId: config.id,
                                             agentId: agent.id,
                                           })
-                                        : assignMutation.mutate({
-                                            configId: config.id,
-                                            agentId: agent.id,
-                                          })
+                                        : handleRequestAssign(config.id, agent.id)
                                     }
                                     disabled={
                                       assignMutation.isPending ||
-                                      unassignMutation.isPending
+                                      unassignMutation.isPending ||
+                                      previewMutation.isPending
                                     }
                                     className={`text-xs disabled:opacity-50 ${
                                       assigned
@@ -775,6 +820,45 @@ export default function ConfigListPage({ kind, title }: ConfigListPageProps) {
         })}
       </div>
 
+      {/* Confirm Modify Dialog */}
+      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认修改文件</DialogTitle>
+            <DialogDescription>
+              此操作将修改以下文件以添加配置
+            </DialogDescription>
+          </DialogHeader>
+          {pendingAssign && (
+            <div className="space-y-3">
+              <code className="block p-3 bg-muted rounded-md text-xs font-mono break-all">
+                {pendingAssign.preview.target_path}
+              </code>
+              <p className="text-sm text-muted-foreground">
+                机制: {" "}
+                {pendingAssign.preview.mechanism === "json_inject"
+                  ? "JSON 注入"
+                  : pendingAssign.preview.mechanism === "toml_inject"
+                  ? "TOML 注入"
+                  : pendingAssign.preview.mechanism}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button type="button" onClick={handleConfirmAssign}>
+              确认安装
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Detail Sheet */}
       <Sheet open={!!selectedId} onOpenChange={(open) => !open && closeConfig()}>
         <SheetContent className="w-[40%] min-w-[320px] p-0">
@@ -808,7 +892,7 @@ export default function ConfigListPage({ kind, title }: ConfigListPageProps) {
                   agents={activeQuickAgents}
                   assignmentMap={assignmentMap}
                   onAssign={(configId, agentId) =>
-                    assignMutation.mutate({ configId, agentId })
+                    handleRequestAssign(configId, agentId)
                   }
                   onUnassign={(configId, agentId) =>
                     unassignMutation.mutate({ configId, agentId })

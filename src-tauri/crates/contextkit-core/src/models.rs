@@ -157,6 +157,13 @@ pub struct AgentSetting {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AssignmentPreview {
+    pub target_path: String,
+    pub will_modify_existing: bool,
+    pub mechanism: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DirNode {
     pub name: String,
     pub relative_path: String,

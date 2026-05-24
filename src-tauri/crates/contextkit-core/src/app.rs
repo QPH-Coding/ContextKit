@@ -2,7 +2,7 @@ use crate::agent::registry::AgentRegistry;
 use crate::config::ConfigManager;
 use crate::error::{ContextKitError, Result};
 use crate::models::{
-    AgentInfo, AgentSetting, Assignment, ConfigDetail, ConfigKind, ConfigSummary, DirNode, McpConfig, PathScope,
+    AgentInfo, AgentSetting, Assignment, AssignmentPreview, ConfigDetail, ConfigKind, ConfigSummary, DirNode, McpConfig, PathScope,
     Settings, Source, SourceType, Stats, SyncMode,
 };
 use crate::source::SourceManager;
@@ -288,6 +288,63 @@ impl App {
     }
 
     // === Assignment 管理 ===
+
+    pub fn preview_assign_config(
+        &self,
+        config_id: &str,
+        agent_id: &str,
+        scope: PathScope,
+        project_path: Option<&Path>,
+    ) -> Result<AssignmentPreview> {
+        let config = self.get_config(config_id)?;
+        let agent = self.agent_registry.get(agent_id).ok_or_else(|| {
+            ContextKitError::AgentToolNotFound {
+                id: agent_id.into(),
+            }
+        })?;
+
+        if !agent.can_install(config.kind) {
+            return Err(ContextKitError::InvalidPath(format!(
+                "Agent {agent_id} does not support config kind {:?}",
+                config.kind
+            )));
+        }
+
+        if !agent.supports_scope(scope) {
+            return Err(ContextKitError::InvalidPath(format!(
+                "Agent {agent_id} does not support scope {scope:?}"
+            )));
+        }
+
+        let target = agent
+            .target_path(config.kind, scope, project_path, &config.absolute_path)
+            .ok_or_else(|| {
+                ContextKitError::InvalidPath(format!(
+                    "Agent {agent_id} has no target path for kind {:?} scope {:?}",
+                    config.kind, scope
+                ))
+            })?;
+
+        let mechanism = agent.mechanism(config.kind);
+        let mechanism_str = match mechanism {
+            crate::agent::AssignmentMechanism::Symlink => "symlink",
+            crate::agent::AssignmentMechanism::Copy => "copy",
+            crate::agent::AssignmentMechanism::JsonInject => "json_inject",
+            crate::agent::AssignmentMechanism::TomlInject => "toml_inject",
+        };
+
+        // Only inject mechanisms "modify" existing files in the sense the user cares about
+        let will_modify = matches!(
+            mechanism,
+            crate::agent::AssignmentMechanism::JsonInject | crate::agent::AssignmentMechanism::TomlInject
+        ) && target.exists();
+
+        Ok(AssignmentPreview {
+            target_path: target.to_string_lossy().to_string(),
+            will_modify_existing: will_modify,
+            mechanism: mechanism_str.to_string(),
+        })
+    }
 
     pub fn assign_config(
         &mut self,
@@ -874,6 +931,77 @@ mod tests {
 
         cleanup(&dir);
         cleanup(&project);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn preview_assign_config_detects_existing_file() {
+        let dir = env::temp_dir().join(format!("ck-app-preview-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers": {"mcp": {"command": "test"}}}"#,
+        )
+        .unwrap();
+
+        let mut app = temp_app("preview-existing");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+        app.sync_source(&source.id, true).unwrap();
+
+        let config_id = app.list_configs(Some(ConfigKind::Mcp), None)[0].id.clone();
+
+        // Before target file exists: will_modify_existing = false
+        let preview = app
+            .preview_assign_config(&config_id, "cursor", PathScope::User, None)
+            .unwrap();
+        assert!(!preview.will_modify_existing);
+        assert_eq!(preview.mechanism, "json_inject");
+        assert!(preview.target_path.ends_with(".cursor/mcp.json"));
+
+        // Create the target file
+        let home_cursor = dirs::home_dir().unwrap().join(".cursor");
+        fs::create_dir_all(&home_cursor).unwrap();
+        fs::write(home_cursor.join("mcp.json"), r#"{"mcpServers": {}}"#).unwrap();
+
+        // After target file exists: will_modify_existing = true
+        let preview = app
+            .preview_assign_config(&config_id, "cursor", PathScope::User, None)
+            .unwrap();
+        assert!(preview.will_modify_existing);
+        assert_eq!(preview.mechanism, "json_inject");
+
+        // Clean up
+        let _ = fs::remove_file(home_cursor.join("mcp.json"));
+
+        cleanup(&dir);
+        cleanup(app.source_manager.config().config_dir());
+    }
+
+    #[test]
+    fn preview_assign_config_symlink_does_not_warn() {
+        let dir = env::temp_dir().join(format!("ck-app-preview-skill-src-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("skills").join("coding")).unwrap();
+        fs::write(dir.join("skills").join("coding").join("SKILL.md"), "# Skill").unwrap();
+
+        let mut app = temp_app("preview-skill");
+        let source = app
+            .add_source(dir.to_string_lossy().to_string(), None)
+            .unwrap();
+        app.sync_source(&source.id, true).unwrap();
+
+        let config_id = app.list_configs(Some(ConfigKind::Skill), None)[0].id.clone();
+        let preview = app
+            .preview_assign_config(&config_id, "claude_code", PathScope::User, None)
+            .unwrap();
+        assert!(!preview.will_modify_existing);
+        assert_eq!(preview.mechanism, "symlink");
+        assert!(preview.target_path.contains(".claude"));
+
+        cleanup(&dir);
         cleanup(app.source_manager.config().config_dir());
     }
 

@@ -5,6 +5,7 @@ import type {
   ConfigDetail,
   DirNode,
   Assignment,
+  AssignmentPreview,
   Stats,
   Settings,
   AgentInfo,
@@ -64,6 +65,18 @@ export const configApi = {
 
 // Assignment management
 export const assignmentApi = {
+  previewAssignConfig: (
+    configId: string,
+    agentId: string,
+    scope: string,
+    projectPath?: string
+  ) =>
+    invokeCommand<AssignmentPreview>("preview_assign_config", {
+      configId,
+      agentId,
+      scope,
+      projectPath,
+    }),
   assignConfig: (
     configId: string,
     agentId: string,
